@@ -5,7 +5,7 @@ public class App {
         Runnable compraIngresso = new Runnable()
         {
             public void run(){
-                if (count < 30){
+                if (count < 10){
                     try {
                         Thread.sleep(10);
                     } catch (InterruptedException e) {
@@ -17,7 +17,7 @@ public class App {
         };
 
         for(int i =1; i<20 ; i++){
-            Thread pessoa = new Thread(compraIngresso);
+            Thread pessoa = Thread.ofVirtual().name("Pessoa" + i).unstarted(compraIngresso);
             pessoa.start();
 
         }
