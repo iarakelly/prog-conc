@@ -24,5 +24,5 @@ public class knn {
 }
 
 public class main {
-    =
+    
 }
