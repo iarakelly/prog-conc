@@ -1,3 +1,5 @@
+package com.concurrency;
+
 public class Point {
     double[] features;
     String label;
