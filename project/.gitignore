@@ -1,0 +1,4 @@
+*.csv
+target/
+*.jar
+src/main/java/com/concurrency/resources

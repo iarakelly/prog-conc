@@ -8,4 +8,6 @@ public class Point {
         this.features = features;
         this.label = label;
     }
+
+    public double[] getFeatures(){return features;}
 }
