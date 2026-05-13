@@ -1,17 +1,24 @@
 package com.concurrency;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.PriorityQueue;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+
 
 
 public class Knn {
     
     public static double calculateDistance(double[] p1, double[] p2){
         double sum = 0;
-        for (int i = 0; i < p1.length; i++){
+        int length = Math.min(p1.length, p2.length);
+
+        for (int i = 0; i < length; i++){
             double diff = p1[i] - p2[i];
             sum += diff * diff;
             //sum += Math.pow((p1[i]-p2[i]), 2);
@@ -33,7 +40,7 @@ public class Knn {
         }
     }
 
-    public static String classifier(List<Point> train, double[] pointC, int k){
+    public static String classifier(List<Point> train, double[] pointC, int k, ExecutorService executor) throws InterruptedException, ExecutionException{
 
         // Treinar é armazenar os dados, no knn
         // K é o número de vizinhos
@@ -42,33 +49,57 @@ public class Knn {
         // guarda apenas os K vizinhos mais próximos.
         // Invertemos a ordem (Max-Heap) para remover sempre o mais distante dos K.
 
-        java.util.PriorityQueue<DistanceLabel> pq = new java.util.PriorityQueue<>(
-        k, (a, b) -> Double.compare(b.distance, a.distance));
+        // Define o número de threads (baseado nos núcleos da CPU)
+        int numThreads = Runtime.getRuntime().availableProcessors();
+        //ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+        int chunkSize = (int) Math.ceil((double) train.size() / numThreads);
+        List<Callable<List<DistanceLabel>>> tasks = new ArrayList<>();
+        //List<DistanceLabel> neighbors = new ArrayList<>();
 
-        for (Point p : train) {
-        double distance = calculateDistance(p.features, pointC);
+        for (int i = 0; i < numThreads; i++) {
+            int start = i * chunkSize;
+            int end = Math.min(start + chunkSize, train.size());
+            
+            if (start >= train.size()) break;
+
+            List<Point> subList = train.subList(start, end);
+            tasks.add(() -> {
+                // Cada thread mantém sua própria PriorityQueue local para os K vizinhos
+                PriorityQueue<DistanceLabel> localPq = new PriorityQueue<>(
+                    k, (a, b) -> Double.compare(b.distance, a.distance));
+
+                for (Point p : subList) {
+                    double distance = calculateDistance(p.features, pointC);
+                    if (localPq.size() < k) {
+                        localPq.add(new DistanceLabel(distance, p.label));
+                    } else if (distance < localPq.peek().distance) {
+                        localPq.poll();
+                        localPq.add(new DistanceLabel(distance, p.label));
+                    }
+                }
+                return new ArrayList<>(localPq);
+            });
+        }
+
+        List<Future<List<DistanceLabel>>> futures = executor.invokeAll(tasks);
+
+        PriorityQueue<DistanceLabel> globalPq = new PriorityQueue<>(
+                k, (a, b) -> Double.compare(b.distance, a.distance));
         
-            if (pq.size() < k) {
-                pq.add(new DistanceLabel(distance, p.label));
-            } else if (distance < pq.peek().distance) {
-                pq.poll(); // Remove o mais longe dos K atuais
-                pq.add(new DistanceLabel(distance, p.label));
+        for (Future<List<DistanceLabel>> future : futures) {
+            for (DistanceLabel dl : future.get()) {
+                if (globalPq.size() < k) {
+                    globalPq.add(dl);
+                } else if (dl.distance < globalPq.peek().distance) {
+                    globalPq.poll();
+                    globalPq.add(dl);
+                }
             }
         }
 
-        List<DistanceLabel> neighbors = new ArrayList<>();
-
-        for (Point p : train){
-            double distance = calculateDistance(p.features, pointC);
-            neighbors.add(new DistanceLabel(distance, p.label)); // criando objeto novo
-
-        }
-
-        Collections.sort(neighbors, Comparator.comparingDouble(dl -> dl.distance)); //Pegue um objeto da lista
-
         HashMap<String, Integer> votes = new HashMap<>();
-        while (!pq.isEmpty()) {
-            String s = pq.poll().label;
+        while (!globalPq.isEmpty()) {
+            String s = globalPq.poll().label;
             votes.put(s, votes.getOrDefault(s, 0) + 1);
         }
     /*

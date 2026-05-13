@@ -12,17 +12,26 @@ public class DataLoader {
         try (BufferedReader br = new BufferedReader(new FileReader(caminho))) {
             String linha;
             int cont = 0;
-            // Pular cabeçalho se houver
-            br.readLine(); 
+            br.readLine(); // Pula o cabeçalho
+
             while ((linha = br.readLine()) != null && cont < limite) {
                 String[] partes = linha.split(",");
-                // Ajuste os índices conforme seu CSV da ANAC
-                double[] features = new double[partes.length - 1];
-                for (int i = 0; i < partes.length - 1; i++) {
-                    features[i] = Double.parseDouble(partes[i]);
-                }
-                pontos.add(new Point(features, partes[partes.length - 1]));
-                cont++;
+                if (partes.length < 2) continue;
+
+                try {
+                    double[] features = new double[partes.length - 1];
+                    for (int i = 0; i < partes.length - 1; i++) {
+                        try {
+                        
+                            features[i] = Double.parseDouble(partes[i]);
+                        } catch (NumberFormatException e) {
+                            features[i] = 0.0; 
+                        }
+                    }
+                    // A última coluna é o Label (ex: "AZUL" ou destino)
+                    pontos.add(new Point(features, partes[partes.length - 1]));
+                    cont++;
+                } catch (Exception e) {}
             }
         } catch (Exception e) {
             System.err.println("Erro ao carregar dados: " + e.getMessage());
