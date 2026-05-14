@@ -9,24 +9,36 @@ public class DataLoader {
 
     public static List<Point> carregarDados(String caminho, int limite) {
         List<Point> pontos = new ArrayList<>();
+
         try (BufferedReader br = new BufferedReader(new FileReader(caminho))) {
-            String linha;
-            int cont = 0;
-            // Pular cabeçalho se houver
-            br.readLine(); 
-            while ((linha = br.readLine()) != null && cont < limite) {
-                String[] partes = linha.split(",");
-                // Ajuste os índices conforme seu CSV da ANAC
+        String linha;
+        int cont = 0;
+        br.readLine(); // Pula o cabeçalho
+
+        while ((linha = br.readLine()) != null && cont < limite) {
+            String[] partes = linha.split(",");
+            if (partes.length < 2) continue;
+
+            try {
                 double[] features = new double[partes.length - 1];
                 for (int i = 0; i < partes.length - 1; i++) {
-                    features[i] = Double.parseDouble(partes[i]);
+                    try {
+                        // Tenta converter. Se for "AZU", vira 0.0 e não quebra o programa
+                        features[i] = Double.parseDouble(partes[i]);
+                    } catch (NumberFormatException e) {
+                        features[i] = 0.0; 
+                    }
                 }
                 pontos.add(new Point(features, partes[partes.length - 1]));
                 cont++;
+            } catch (Exception e) {
+                continue; // Pula a linha se houver erro de estrutura
             }
-        } catch (Exception e) {
-            System.err.println("Erro ao carregar dados: " + e.getMessage());
         }
+    } catch (Exception e) {
+        System.err.println("Erro ao carregar dados: " + e.getMessage());
+    }
+        
         return pontos;
     } 
 }

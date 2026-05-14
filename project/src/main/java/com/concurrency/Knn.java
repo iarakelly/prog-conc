@@ -11,7 +11,9 @@ public class Knn {
     
     public static double calculateDistance(double[] p1, double[] p2){
         double sum = 0;
-        for (int i = 0; i < p1.length; i++){
+        int length = Math.min(p1.length, p2.length);
+        
+        for (int i = 0; i < length; i++){
             double diff = p1[i] - p2[i];
             sum += diff * diff;
             //sum += Math.pow((p1[i]-p2[i]), 2);
