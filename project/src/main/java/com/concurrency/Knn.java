@@ -14,75 +14,46 @@ public class Knn {
         int length = Math.min(p1.length, p2.length);
         
         for (int i = 0; i < length; i++){
-            double diff = p1[i] - p2[i];
-            sum += diff * diff;
-            //sum += Math.pow((p1[i]-p2[i]), 2);
+            //double diff = p1[i] - p2[i];
+            //sum += diff * diff;
+            sum += Math.pow((p1[i]-p2[i]), 2);
             
         }
         
         return Math.sqrt(sum);
     }
 
-    //CLasse para juntar distance com label
+    // Classe para juntar distance e target
 
-    static class DistanceLabel{
+    static class DistanceTarget{
         double distance;
-        String label;
+        double hour;
     
-        DistanceLabel(double d, String r){
+        DistanceTarget(double d, double h){
             this.distance = d;
-            this.label = r;
+            this.hour = h;
         }
     }
 
-    public static String classifier(List<Point> train, double[] pointC, int k){
+    public static double regressor(List<Point> train, double[] pointC, int k){
 
-        // Treinar é armazenar os dados, no knn
-        // K é o número de vizinhos
-
-        // Em vez de uma lista de 500k objetos a PriorityQueue 
-        // guarda apenas os K vizinhos mais próximos.
-        // Invertemos a ordem (Max-Heap) para remover sempre o mais distante dos K.
-
-        java.util.PriorityQueue<DistanceLabel> pq = new java.util.PriorityQueue<>(
-        k, (a, b) -> Double.compare(b.distance, a.distance));
+        List<DistanceTarget> neighbors = new ArrayList<>();
 
         for (Point p : train) {
         double distance = calculateDistance(p.features, pointC);
-        
-            if (pq.size() < k) {
-                pq.add(new DistanceLabel(distance, p.label));
-            } else if (distance < pq.peek().distance) {
-                pq.poll(); // Remove o mais longe dos K atuais
-                pq.add(new DistanceLabel(distance, p.label));
-            }
+           neighbors.add(new DistanceTarget(distance, p.hour));
+            
         }
 
-        List<DistanceLabel> neighbors = new ArrayList<>();
+        Collections.sort(neighbors, Comparator.comparingDouble(dl -> dl.distance));
 
-        for (Point p : train){
-            double distance = calculateDistance(p.features, pointC);
-            neighbors.add(new DistanceLabel(distance, p.label)); // criando objeto novo
 
+        double sumDistancias = 0;
+        for (int i = 0; i < k; i++) {
+            sumDistancias += neighbors.get(i).hour;
         }
 
-        Collections.sort(neighbors, Comparator.comparingDouble(dl -> dl.distance)); //Pegue um objeto da lista
-
-        HashMap<String, Integer> votes = new HashMap<>();
-        while (!pq.isEmpty()) {
-            String s = pq.poll().label;
-            votes.put(s, votes.getOrDefault(s, 0) + 1);
-        }
-    /*
-    for(int i = 0; i < k; i++){
-        String s = neighbors.get(i).label;
-
-        votes.put(s, votes.getOrDefault(s, 0) + 1); // pega o contador ou inicia default como 0
-
-    } 
-    */    
-
-        return Collections.max(votes.entrySet(), Map.Entry.comparingByValue()).getKey();
+        return sumDistancias/k;
 
     }
 }
