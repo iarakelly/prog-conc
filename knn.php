@@ -2,22 +2,22 @@
 
 class Point {
     public array $features;
-    public string $label;
+    public float $hour;
 
-    public function __construct(array $features, string $label){
+    public function __construct(array $features, float $hour){
         $this->features = $features;
-        $this->label = $label;
+        $this->hour = $hour;
 
     }
 }
 
-class DistanceLabel {
+class DistanceTarget {
     public float $distance;
-    public string $label;
+    public float $hour;
 
-    function __construct( float $distance, string $label){
+    function __construct( float $distance, float $hour){
         $this->distance = $distance;
-        $this->label = $label;
+        $this->hour = $hour;
     }
 }
 
@@ -32,31 +32,24 @@ class Knn{
     return $sum**(1/2);
     }
 
-    function classifier(array $train, Point $pc, $k){
+    function regressor(array $train, Point $pc, $k){
         $neighboors = array();
 
         foreach($train as $p){
-            $dist = $this->calculate_distance($p, $teste);
-            $neighboors[] = new DistanceLabel($dist, $p->label);
+            $dist = $this->calculate_distance($p, $pc);
+            $neighboors[] = new DistanceTarget($dist, $p->hour);
         }
 
-        usort($neigbhoors, function( $a, $b){
+        usort($neighboors, function( $a, $b){
             // O operador <=> retorna -1 se $a < $b, 0 se igual, e 1 se $a > $b
             return $a->distance <=> $b->distance;
         });
 
-        $votes = array();
+        $sumDistances = 0;
 
-        for($i = 0; $i < k; $i++){
-            $s = $neigboors[$i]->label;
-
-            if(isset($votes[$label])){
-                $votes[$label]++;    
-            }
-            else{
-                $votes[$label] =1; 
-            }
+        for ($i = 0; $i < $k; $i++){
+            $sumDistances += $neighboors[$i]->hour;
         }
-        return array_key_first($votes);
+        return $sumDistances/$k;
     }    
 }
