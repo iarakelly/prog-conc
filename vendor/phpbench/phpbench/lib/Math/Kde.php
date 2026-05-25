@@ -12,12 +12,15 @@
 
 namespace PhpBench\Math;
 
+use Closure;
+use OutOfBoundsException;
+use InvalidArgumentException;
+
 /**
  * This class was ported from the Python scipy package.
  *
  * https://github.com/scipy/scipy/blob/master/scipy/stats/kde.py
  */
-
 /**
  * Define classes for (uni/multi)-variate kernel density estimation.
  *
@@ -38,39 +41,25 @@ namespace PhpBench\Math;
  */
 class Kde
 {
-    /**
-     * @var \Closure
-     */
-    private $coVarianceFactor;
-
-    /**
-     * @var array
-     */
-    private $dataset;
+    private ?Closure $coVarianceFactor = null;
 
     /**
      * @var float
      */
     private $factor;
 
-    /**
-     * @var float
-     */
-    private $_dataInvCov;
+    private ?float $_dataInvCov = null;
+
+    private float|int|object|null $_dataCovariance = null;
+
+    private int|float|null $invCov = null;
 
     /**
      * @var float
      */
-    private $_dataCovariance;
-
-    /**
-     * @var float
-     */
-    private $invCov;
-
     private $covariance;
 
-    private $normFactor;
+    private ?float $normFactor = null;
 
     /**
      * Representation of a kernel-density estimate using Gaussian kernels.
@@ -106,16 +95,19 @@ class Kde
      *   .. [2] B.W. Silverman, "Density Estimation for Statistics and Data
      *          Analysis", Vol. 26, Monographs on Statistics and Applied Probability,
      *          Chapman and Hall, London, 1986.
+     *   .. [3] B.A. Turlach, "Bandwidth Selection in Kernel Density Estimation: A
+     *          Review", CORE and Institut de Statistique, Vol. 19, pp. 1-33, 1993.
+     *   .. [4] D.M. Bashtannyk and R.J. Hyndman, "Bandwidth selection for kernel
+     *          conditional density estimation", Computational Statistics & Data
+     *          Analysis, Vol. 36, pp. 279-298, 2001.
      *
-     * @param array $dataset Array of univariate data points.
-     * @param string $bwMethod : Either "scott", "silverman" or an explicit (float) value.
+     * @param array<float> $dataset Array of univariate data points.
+     * @param string|'scott'|'silverman'|float|null $bwMethod
      */
-    public function __construct(array $dataset, $bwMethod = null)
+    public function __construct(private array $dataset, $bwMethod = null)
     {
-        $this->dataset = $dataset;
-
         if (count($this->dataset) <= 1) {
-            throw new \OutOfBoundsException('`dataset` input should have multiple elements.');
+            throw new OutOfBoundsException('`dataset` input should have multiple elements.');
         }
 
         $this->setBandwidth($bwMethod);
@@ -124,11 +116,11 @@ class Kde
     /**
      * Evaluate the estimated pdf on a set of points.
      *
-     * @param array $points 1-D array of points on to which we will map the kde
+     * @param array<float> $points 1-D array of points on to which we will map the kde
      *
-     * @return array
+     * @return array<float>
      */
-    public function evaluate(array $points)
+    public function evaluate(array $points): array
     {
         $count = count($this->dataset);
 
@@ -199,24 +191,24 @@ class Kde
      * The new bandwidth calculated after a call to `setBandwidth` is used
      * for subsequent evaluations of the estimated density.
      *
-     * @param string $bwMethod Either "scott" or "silverman"
+     * @param string|'scott'|'silverman'|float|null $bwMethod
      */
-    public function setBandwidth($bwMethod = null)
+    public function setBandwidth($bwMethod = null): void
     {
         if ($bwMethod == 'scott' || null === $bwMethod) {
             $this->coVarianceFactor = function () {
-                return pow(count($this->dataset), -1. / (5));
+                return count($this->dataset) ** (-1. / (5));
             };
         } elseif ($bwMethod == 'silverman') {
             $this->coVarianceFactor = function () {
-                return pow(count($this->dataset) * (3.0) / 4.0, -1. / (5));
+                return (count($this->dataset) * (3.0) / 4.0) ** (-1. / (5));
             };
         } elseif (is_numeric($bwMethod)) {
             $this->coVarianceFactor = function () use ($bwMethod) {
                 return $bwMethod;
             };
         } else {
-            throw new \InvalidArgumentException(sprintf(
+            throw new InvalidArgumentException(sprintf(
                 'Unknown bandwidth method "%s"',
                 $bwMethod
             ));
@@ -229,7 +221,7 @@ class Kde
      * Computes the covariance matrix for each Gaussian kernel using
      * coVarianceFactor().
      */
-    private function computeCovariance()
+    private function computeCovariance(): void
     {
         $factorCallable = $this->coVarianceFactor;
         $this->factor = $factorCallable();
@@ -237,14 +229,14 @@ class Kde
         // Cache covariance and inverse covariance of the data
         if (null === $this->_dataInvCov) {
             // original used the numpy.cov function.
-            $this->_dataCovariance = pow(Statistics::stdev($this->dataset, true), 2);
+            $this->_dataCovariance = Statistics::stdev($this->dataset, true) ** 2;
 
             //$this->_dataInvCov = 1/ linalg.inv($this->_dataCovariance)
             $this->_dataInvCov = 1 / $this->_dataCovariance;
         }
 
-        $this->covariance = $this->_dataCovariance * pow($this->factor, 2);
-        $this->invCov = $this->_dataInvCov / pow($this->factor, 2);
+        $this->covariance = $this->_dataCovariance * $this->factor ** 2;
+        $this->invCov = $this->_dataInvCov / $this->factor ** 2;
         $this->normFactor = sqrt(2 * M_PI * $this->covariance) * count($this->dataset);
     }
 }

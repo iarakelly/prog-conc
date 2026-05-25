@@ -1,5 +1,7 @@
 <?php
 
+use PhpBench\Exception\ConfigurationPreProcessingError;
+
 /*
  * This file is part of the PHPBench package
  *
@@ -20,4 +22,4 @@ if (is_file(__DIR__ . '/../vendor/autoload.php')) {
     exit(1);
 }
 
-PhpBench\PhpBench::run($autoloader);
+PhpBench\PhpBench::run();

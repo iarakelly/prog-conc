@@ -12,12 +12,14 @@
 
 namespace PhpBench\Report\Generator;
 
-use PhpBench\Console\OutputAwareInterface;
-use PhpBench\Dom\Document;
+use PhpBench\Expression\Ast\PhpValueFactory;
+use PhpBench\Expression\Ast\StringNode;
 use PhpBench\Model\SuiteCollection;
 use PhpBench\Registry\Config;
 use PhpBench\Report\GeneratorInterface;
-use Symfony\Component\Console\Output\OutputInterface;
+use PhpBench\Report\Model\Report;
+use PhpBench\Report\Model\Reports;
+use PhpBench\Report\Model\Table;
 use Symfony\Component\OptionsResolver\OptionsResolver;
 
 /**
@@ -26,78 +28,55 @@ use Symfony\Component\OptionsResolver\OptionsResolver;
  * NOTE: The Table report generator could probably be improved to be able to incorporate
  *       this report somehow.
  */
-class EnvGenerator implements GeneratorInterface, OutputAwareInterface
+class EnvGenerator implements GeneratorInterface
 {
-    private $output;
-
     /**
      * {@inheritdoc}
      */
-    public function setOutput(OutputInterface $output)
-    {
-        $this->output = $output;
-    }
-
-    /**
-     * {@inheritdoc}
-     */
-    public function configure(OptionsResolver $options)
+    public function configure(OptionsResolver $options): void
     {
         $options->setDefaults([
             'title' => null,
             'description' => null,
         ]);
+        $options->setAllowedTypes('title', ['null', 'scalar']);
+        $options->setAllowedTypes('description', ['null', 'scalar']);
     }
 
     /**
      * {@inheritdoc}
      */
-    public function generate(SuiteCollection $suiteCollection, Config $config)
+    public function generate(SuiteCollection $suiteCollection, Config $config): Reports
     {
-        $document = new Document();
-        $reportsEl = $document->createRoot('reports');
-        $reportsEl->setAttribute('name', 'table');
-        $reportEl = $reportsEl->appendElement('report');
-
-        if (isset($config['title'])) {
-            $reportEl->setAttribute('title', $config['title']);
-        }
-
-        if (isset($config['description'])) {
-            $reportEl->appendElement('description', $config['description']);
-        }
+        $tables = [];
 
         foreach ($suiteCollection as $suite) {
-            $tableEl = $reportEl->appendElement('table');
-            $colsEl = $tableEl->appendElement('cols');
+            $title = sprintf(
+                'Suite #%s %s',
+                $suite->getUuid(),
+                $suite->getDate()->format('Y-m-d H:i:s')
+            );
 
-            foreach (['provider', 'key', 'value'] as $colName) {
-                $col = $colsEl->appendElement('col');
-                $col->setAttribute('name', $colName);
-                $col->setAttribute('label', $colName);
-            }
-
-            $tableEl->setAttribute('title', sprintf(
-                'Suite #%s %s', $suite->getUuid(), $suite->getDate()->format('Y-m-d H:i:s')
-            ));
-
-            $groupEl = $tableEl->appendElement('group');
-            $groupEl->setAttribute('name', 'body');
+            $rows = [];
 
             foreach ($suite->getEnvInformations() as $envInformation) {
                 foreach ($envInformation as $key => $value) {
-                    $rowEl = $groupEl->appendElement('row');
-
-                    $cellEl = $rowEl->appendElement('cell', $envInformation->getName());
-                    $cellEl->setAttribute('name', 'provider');
-                    $cellEl = $rowEl->appendElement('cell', $key);
-                    $cellEl->setAttribute('name', 'key');
-                    $cellEl = $rowEl->appendElement('cell', is_bool($value) ? $value ? 'yes' : 'no' : $value);
-                    $cellEl->setAttribute('name', 'value');
+                    $rows[] = [
+                        'provider' => new StringNode($envInformation->getName()),
+                        'key' => new StringNode($key),
+                        'value' => PhpValueFactory::fromValue($value)
+                    ];
                 }
             }
+            $tables[] = Table::fromRowArray($rows, $title);
         }
 
-        return $document;
+        return Reports::fromReport(
+            Report::fromTables(
+                $tables,
+                $config['title'] ?? null,
+                $config['description'] ?? null
+            )
+        );
     }
 }

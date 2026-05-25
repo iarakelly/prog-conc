@@ -14,8 +14,11 @@ namespace PhpBench\Benchmark\Metadata\Annotations;
 
 /**
  * @Annotation
+ *
  * @Taget({"CLASS"})
+ *
  * @Attributes({
+ *
  *    @Attribute("value", required = true,  type = "array"),
  * })
  */

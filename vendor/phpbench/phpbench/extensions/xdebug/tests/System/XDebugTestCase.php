@@ -13,11 +13,16 @@
 namespace PhpBench\Extensions\XDebug\Tests\System;
 
 use PhpBench\Tests\System\SystemTestCase;
+use Symfony\Component\Process\Process;
 
 class XDebugTestCase extends SystemTestCase
 {
     protected function setUp(): void
     {
+        if (getenv('SKIP_XDEBUG_TESTS')) {
+            $this->markTestSkipped('Tests disabled by CI.');
+        }
+
         if (!extension_loaded('xdebug')) {
             $this->markTestSkipped('XDebug not enabled.');
         }
@@ -25,7 +30,7 @@ class XDebugTestCase extends SystemTestCase
         parent::setUp();
     }
 
-    public function phpbench($command, $workingDir = '.')
+    public function phpbench($command, $workingDir = '.'): Process
     {
         $command .= ' --extension="PhpBench\\Extensions\\XDebug\\XDebugExtension"';
 

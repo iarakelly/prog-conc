@@ -2,34 +2,16 @@
 
 namespace PhpBench\Executor;
 
-use PhpBench\Benchmark\Metadata\BenchmarkMetadata;
-use PhpBench\Benchmark\Metadata\SubjectMetadata;
 use PhpBench\Executor\HealthCheck\AlwaysFineHealthCheck;
-use PhpBench\Model\Iteration;
 use PhpBench\Registry\Config;
 use Symfony\Component\OptionsResolver\OptionsResolver;
 
 class CompositeExecutor implements BenchmarkExecutorInterface, HealthCheckInterface, MethodExecutorInterface
 {
-    /**
-     * @var BenchmarkExecutorInterface
-     */
-    private $benchmarkExecutor;
+    private readonly HealthCheckInterface $healthCheck;
 
-    /**
-     * @var MethodExecutorInterface
-     */
-    private $methodExecutor;
-
-    /**
-     * @var HealthCheckInterface
-     */
-    private $healthCheck;
-
-    public function __construct(BenchmarkExecutorInterface $benchmarkExecutor, MethodExecutorInterface $methodExecutor, HealthCheckInterface $healthCheck = null)
+    public function __construct(private readonly BenchmarkExecutorInterface $benchmarkExecutor, private readonly MethodExecutorInterface $methodExecutor, ?HealthCheckInterface $healthCheck = null)
     {
-        $this->benchmarkExecutor = $benchmarkExecutor;
-        $this->methodExecutor = $methodExecutor;
         $this->healthCheck = $healthCheck ?: new AlwaysFineHealthCheck();
     }
 
@@ -41,9 +23,9 @@ class CompositeExecutor implements BenchmarkExecutorInterface, HealthCheckInterf
         $this->benchmarkExecutor->configure($options);
     }
 
-    public function execute(SubjectMetadata $subjectMetadata, Iteration $iteration, Config $config): void
+    public function execute(ExecutionContext $context, Config $config): ExecutionResults
     {
-        $this->benchmarkExecutor->execute($subjectMetadata, $iteration, $config);
+        return $this->benchmarkExecutor->execute($context, $config);
     }
 
     /**
@@ -54,8 +36,11 @@ class CompositeExecutor implements BenchmarkExecutorInterface, HealthCheckInterf
         $this->healthCheck->healthCheck();
     }
 
-    public function executeMethods(BenchmarkMetadata $benchmark, array $methods): void
+    /**
+     * @param array<string> $methods
+     */
+    public function executeMethods(MethodExecutorContext $context, array $methods): void
     {
-        $this->methodExecutor->executeMethods($benchmark, $methods);
+        $this->methodExecutor->executeMethods($context, $methods);
     }
 }

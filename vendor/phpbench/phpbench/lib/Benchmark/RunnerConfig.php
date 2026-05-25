@@ -13,81 +13,60 @@
 namespace PhpBench\Benchmark;
 
 use InvalidArgumentException;
+use PhpBench\Model\SuiteCollection;
 
 /**
  * The benchmark runner context.
  */
 class RunnerConfig
 {
-    /**
-     * @var string
-     */
-    private $executor = 'microtime';
+    /** @var string|array<string,mixed> */
+    private string|array $executor = 'remote';
 
-    /**
-     * @var string
-     */
-    private $tag;
+    private ?string $tag = null;
 
-    /**
-     * @var array
-     */
-    private $filters = [];
+    /** @var string[] */
+    private array $filters = [];
 
-    /**
-     * @var string[]
-     */
-    private $groups = [];
+    /** @var string[] */
+    private array $groups = [];
 
-    /**
-     * @var int[]
-     */
-    private $iterations = [];
+    /** @var int[] */
+    private array $iterations = [];
 
-    /**
-     * @var int[]
-     */
-    private $revolutions = [];
+    /** @var int[] */
+    private array $revolutions = [];
 
-    /**
-     * @var float
-     */
-    private $retryThreshold;
+    private ?float $retryThreshold = null;
 
-    /**
-     * @var int
-     */
-    private $sleep;
+    private ?int $sleep = null;
 
-    /**
-     * @var int[]
-     */
-    private $warmup = [];
+    /** @var int[] */
+    private array $warmup = [];
 
-    /**
-     * @var int
-     */
-    private $outputTimePrecision;
+    private ?int $outputTimePrecision = null;
 
-    /**
-     * @var string
-     */
-    private $outputTimeUnit;
+    private ?string $outputTimeUnit = null;
 
-    /**
-     * @var bool
-     */
-    private $stopOnError;
+    private bool $stopOnError = true;
 
-    /**
-     * @var array
-     */
-    private $assertions;
+    /** @var array<string> */
+    private array $assertions = [];
 
-    /**
-     * @var array
-     */
-    private $parameters = [];
+    private ?string $format = null;
+
+    /** @var mixed[] */
+    private array $parameters = [];
+
+    private SuiteCollection $baselines;
+
+    /** @var string[] */
+    private array $variantFilters = [];
+
+    private function __construct()
+    {
+        $this->baselines = new SuiteCollection();
+    }
 
     public static function create(): self
     {
@@ -99,6 +78,8 @@ class RunnerConfig
         $default = new self();
         $new = clone $this;
 
+        /** @phpstan-ignore-next-line Phpstan doesn't understand this
+         * and it's rather ugly in anycase */
         foreach ($config as $property => $value) {
             if ($value !== $default->$property) {
                 $new->$property = $value;
@@ -110,32 +91,20 @@ class RunnerConfig
 
     /**
      * Return the name to assign to this suite.
-     *
-     * NOTE: Do not confuse this with
-     *       this context class. It is simply an arbitrary identifier to identify the
-     *       suite when doing a comparison.
-     *
-     * @return string
      */
-    public function getTag()
+    public function getTag(): ?string
     {
         return $this->tag;
     }
 
     /**
-     * Whitelist of subject method names.
-     */
-    public function getFilters(): array
-    {
-        return $this->filters;
-    }
-
-    /**
      * Override the number of iterations to execute.
      *
-     * @return array
+     * @param int[] $default
+     *
+     * @return int[]
      */
-    public function getIterations($default = null)
+    public function getIterations(array $default = []): array
     {
         return $this->iterations ?: $default;
     }
@@ -143,9 +112,11 @@ class RunnerConfig
     /**
      * Get the number of rev(olutions) to run.
      *
-     * @param int $default
+     * @param int[] $default
+     *
+     * @return int[]
      */
-    public function getRevolutions($default = null)
+    public function getRevolutions(array $default = []): array
     {
         return $this->revolutions ?: $default;
     }
@@ -153,9 +124,11 @@ class RunnerConfig
     /**
      * Return the number of warmup revolutions that should be exectuted.
      *
-     * @param array $default
+     * @param int[] $default
+     *
+     * @return int[]
      */
-    public function getWarmup($default = null)
+    public function getWarmup(array $default = []): array
     {
         return $this->warmup ?: $default;
     }
@@ -163,41 +136,25 @@ class RunnerConfig
     /**
      * Override parameters.
      *
+     * @param mixed[] $default
+     *
      * @return mixed[]
      */
-    public function getParameterSets($default = null)
+    public function getParameterSets(array $default = []): array
     {
-        $parameters = $this->parameters ? [[$this->parameters]] : $default;
-
-        if (!$parameters) {
-            return [[[]]];
-        }
-
-        return $parameters;
+        return [[$this->parameters ?: $default]];
     }
 
     /**
      * Override the sleep interval (in microseconds).
      *
-     * @param mixed $default
+     * @param ?int $default
+     *
+     * @return ?int
      */
     public function getSleep($default = null)
     {
-        if (null === $this->sleep) {
-            return $default;
-        }
-
-        return $this->sleep;
-    }
-
-    /**
-     * Whitelist of groups to execute.
-     *
-     * @return string[]
-     */
-    public function getGroups()
-    {
-        return $this->groups;
+        return $this->sleep ?? $default;
     }
 
     /**
@@ -205,20 +162,17 @@ class RunnerConfig
      * be retried.
      *
      * A value of NULL will disable retry.
-     *
-     * @return float
      */
-    public function getRetryThreshold(float $default = null)
+    public function getRetryThreshold(?float $default = null): ?float
     {
         return $this->retryThreshold ?: $default;
     }
 
     /**
+     * @deprecated as not used
      * Return the output time unit.
-     *
-     * @return string
      */
-    public function getOutputTimeUnit(string $default = null)
+    public function getOutputTimeUnit(?string $default = null): ?string
     {
         return $this->outputTimeUnit ?: $default;
     }
@@ -226,9 +180,11 @@ class RunnerConfig
     /**
      * Return the output time precision.
      *
-     * @return string
+     * @deprecated as not used
+     *
+     * @return int|string|null
      */
-    public function getOutputTimePrecision(string $default = null)
+    public function getOutputTimePrecision(?string $default = null)
     {
         return $this->outputTimePrecision ?: $default;
     }
@@ -236,7 +192,7 @@ class RunnerConfig
     /**
      * Return either an executor configuration name or an actual configuration.
      *
-     * @return string
+     * @return string|array<string,mixed>
      */
     public function getExecutor()
     {
@@ -248,28 +204,35 @@ class RunnerConfig
      *
      * @retrun bool
      */
-    public function getStopOnError()
+    public function getStopOnError(): bool
     {
         return $this->stopOnError;
     }
 
     /**
      * Return assertions (which will override any metadata based assertions).
+     *
+     * @return array<string>
      */
     public function getAssertions(): array
     {
         return $this->assertions ?: [];
     }
 
+    /**
+     * @param string|array<string, mixed>|null $executor
+     */
     public function withExecutor($executor = null): self
     {
+        $executor ??= $this->executor;
+
         $new = clone $this;
         $new->executor = $executor;
 
         return $new;
     }
 
-    public function withTag(string $tag = null): self
+    public function withTag(?string $tag = null): self
     {
         $new = clone $this;
         $new->tag = $tag;
@@ -277,7 +240,12 @@ class RunnerConfig
         return $new;
     }
 
-    public function withFilters(array $filters = null): self
+    /**
+     * @deprecated as not used
+     *
+     * @param string[] $filters
+     */
+    public function withFilters(array $filters = []): self
     {
         $new = clone $this;
         $new->filters = $filters;
@@ -285,7 +253,12 @@ class RunnerConfig
         return $new;
     }
 
-    public function withGroups(array $groups = null): self
+    /**
+     * @deprecated as not used
+     *
+     * @param string[] $groups
+     */
+    public function withGroups(array $groups = []): self
     {
         $new = clone $this;
         $new->groups = $groups;
@@ -293,9 +266,12 @@ class RunnerConfig
         return $new;
     }
 
-    public function withIterations(array $iterations = null): self
+    /**
+     * @param int[] $iterations
+     */
+    public function withIterations(array $iterations = []): self
     {
-        $this->assertArrayValuesGreaterThanZero($iterations);
+        $this->assertArrayValuesGreaterThanZero('iterations', $iterations);
 
         $new = clone $this;
         $new->iterations = $iterations;
@@ -303,7 +279,10 @@ class RunnerConfig
         return $new;
     }
 
-    public function withRevolutions(array $revolutions = null): self
+    /**
+     * @param int[] $revolutions
+     */
+    public function withRevolutions(array $revolutions = []): self
     {
         $this->assertArrayValuesGreaterThanZero('revs', $revolutions);
 
@@ -313,7 +292,10 @@ class RunnerConfig
         return $new;
     }
 
-    public function withParameters(array $parameters = null): self
+    /**
+     * @param mixed[] $parameters
+     */
+    public function withParameters(array $parameters = []): self
     {
         $new = clone $this;
         $new->parameters = $parameters;
@@ -321,7 +303,7 @@ class RunnerConfig
         return $new;
     }
 
-    public function withRetryThreshold(float $retryThreshold = null): self
+    public function withRetryThreshold(?float $retryThreshold = null): self
     {
         $this->assertGreaterThanZero('retry threshold', $retryThreshold);
 
@@ -331,7 +313,7 @@ class RunnerConfig
         return $new;
     }
 
-    public function withSleep(int $sleep = null): self
+    public function withSleep(?int $sleep = null): self
     {
         $this->assertGreaterThanZero('sleep', $sleep);
 
@@ -341,7 +323,10 @@ class RunnerConfig
         return $new;
     }
 
-    public function withWarmup(array $warmup = null): self
+    /**
+     * @param int[] $warmup
+     */
+    public function withWarmup(array $warmup = []): self
     {
         $this->assertArrayValuesGreaterThanZero('warmup', $warmup);
 
@@ -351,7 +336,10 @@ class RunnerConfig
         return $new;
     }
 
-    public function withOutputTimePrecision(int $outputTimePrecision = null): self
+    /**
+     * @deprecated as not used
+     */
+    public function withOutputTimePrecision(?int $outputTimePrecision = null): self
     {
         $new = clone $this;
         $new->outputTimePrecision = $outputTimePrecision;
@@ -359,7 +347,10 @@ class RunnerConfig
         return $new;
     }
 
-    public function withOutputTimeUnit(string $outputTimeUnit = null): self
+    /**
+     * @deprecated as not used
+     */
+    public function withOutputTimeUnit(?string $outputTimeUnit = null): self
     {
         $new = clone $this;
         $new->outputTimeUnit = $outputTimeUnit;
@@ -367,15 +358,19 @@ class RunnerConfig
         return $new;
     }
 
-    public function withStopOnError(bool $stopOnError = null): self
+    public function withStopOnError(?bool $stopOnError = null): self
     {
+        $stopOnError ??= $this->stopOnError;
         $new = clone $this;
         $new->stopOnError = $stopOnError;
 
         return $new;
     }
 
-    public function withAssertions(array $assertions = null): self
+    /**
+     * @param string[] $assertions
+     */
+    public function withAssertions(array $assertions = []): self
     {
         $new = clone $this;
         $new->assertions = $assertions;
@@ -383,7 +378,55 @@ class RunnerConfig
         return $new;
     }
 
-    private function assertArrayValuesGreaterThanZero($field, array $values = [])
+    public function withFormat(?string $format = null): self
+    {
+        $new = clone $this;
+        $new->format = $format;
+
+        return $new;
+    }
+
+    public function getFormat(): ?string
+    {
+        return $this->format ?: null;
+    }
+
+    public function withBaselines(SuiteCollection $baselines): self
+    {
+        $new = clone($this);
+        $new->baselines = $baselines;
+
+        return $new;
+    }
+
+    /**
+     * @param string[] $variantFilters
+     */
+    public function withVariantFilters(array $variantFilters): self
+    {
+        $new = clone($this);
+        $new->variantFilters = $variantFilters;
+
+        return $new;
+    }
+
+    public function getBaselines(): SuiteCollection
+    {
+        return $this->baselines;
+    }
+
+    /**
+     * @return string[]
+     */
+    public function getVariantFilters(): array
+    {
+        return $this->variantFilters;
+    }
+
+    /**
+     * @param int[] $values
+     */
+    private function assertArrayValuesGreaterThanZero(string $field, array $values = []): void
     {
         $values = array_filter($values, function ($value) {
             return $value <= 0;
@@ -395,11 +438,12 @@ class RunnerConfig
 
         throw new InvalidArgumentException(sprintf(
             'All values for "%s" must be greater than 0, the following were less than 0 "%s"',
-            $field, implode('", "', $values)
+            $field,
+            implode('", "', $values)
         ));
     }
 
-    private function assertGreaterThanZero(string $field, float $value = null)
+    private function assertGreaterThanZero(string $field, ?float $value = null): void
     {
         if (null === $value) {
             return;
@@ -411,7 +455,8 @@ class RunnerConfig
 
         throw new InvalidArgumentException(sprintf(
             '"%s" must be greater than 0, got "%s"',
-            $field, $value
+            $field,
+            $value
         ));
     }
 }

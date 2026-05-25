@@ -12,50 +12,40 @@
 
 namespace PhpBench\Console\Command\Handler;
 
-use PhpBench\Expression\Parser;
+use InvalidArgumentException;
 use PhpBench\Model\SuiteCollection;
-use PhpBench\Registry\Registry;
 use PhpBench\Serializer\XmlDecoder;
-use PhpBench\Storage\UuidResolverInterface;
+use PhpBench\Storage\StorageRegistry;
+use PhpBench\Storage\UuidResolver;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 
 class SuiteCollectionHandler
 {
-    private $xmlDecoder;
-    private $parser;
-    private $storage;
-    private $uuidResolver;
-
-    public function __construct(
-        XmlDecoder $xmlDecoder,
-        Parser $parser,
-        Registry $storage,
-        UuidResolverInterface $uuidResolver
-    ) {
-        $this->xmlDecoder = $xmlDecoder;
-        $this->parser = $parser;
-        $this->storage = $storage;
-        $this->uuidResolver = $uuidResolver;
+    public function __construct(private readonly XmlDecoder $xmlDecoder, private readonly StorageRegistry $storage, private readonly UuidResolver $refResolver)
+    {
     }
 
-    public static function configure(Command $command)
+    public static function configure(Command $command): void
     {
-        $command->addOption('uuid', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Run UUID');
-        $command->addOption('query', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Storage query');
+        $command->addOption('ref', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Reference to an existing run - can be a UUID or tag or special word (e.g. latest)');
         $command->addOption('file', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Report XML file');
     }
 
-    public function suiteCollectionFromInput(InputInterface $input)
+    public function suiteCollectionFromInput(InputInterface $input): SuiteCollection
     {
         $files = $input->getOption('file');
-        $queries = $input->getOption('query');
-        $uuids = $input->getOption('uuid');
+        $refs = $input->getOption('ref');
+        assert(is_array($files));
+        assert(is_array($refs));
 
-        if (!$files && !$queries && !$uuids) {
-            throw new \InvalidArgumentException(
-                'You must specify at least one of `--query` and/or `--uuid`'
+        $subjectPatterns = $input->hasOption('filter') ? $input->getOption('filter') : [];
+        $variantPatterns = $input->hasOption('variant') ? $input->getOption('variant') : [];
+
+        if (!$files && !$refs) {
+            throw new InvalidArgumentException(
+                'You must specify at least one of `--file` and/or `--ref`'
             );
         }
 
@@ -67,21 +57,11 @@ class SuiteCollectionHandler
             );
         }
 
-        if ($queries) {
-            foreach ($queries as $query) {
-                $constraint = $this->parser->parse($query);
-                $collection->mergeCollection(
-                    $this->storage->getService()->query($constraint)
-                );
-            }
-        }
-
-        if ($uuids) {
-            foreach ($uuids as $uuid) {
-                $uuid = $this->uuidResolver->resolve($uuid);
-                $collection->mergeCollection(
-                    $this->storage->getService()->fetch($uuid)
-                );
+        if ($refs) {
+            foreach ($refs as $ref) {
+                $collection->mergeCollection($this->storage->getService()->fetch(
+                    $this->refResolver->resolve($ref)
+                )->filter($subjectPatterns, $variantPatterns));
             }
         }
 

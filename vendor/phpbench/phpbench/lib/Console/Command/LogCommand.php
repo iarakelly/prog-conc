@@ -16,6 +16,7 @@ use PhpBench\Console\Application;
 use PhpBench\Console\CharacterReader;
 use PhpBench\Console\Command\Handler\TimeUnitHandler;
 use PhpBench\Registry\Registry;
+use PhpBench\Storage\DriverInterface;
 use PhpBench\Util\TimeUnit;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -25,46 +26,48 @@ use Symfony\Component\Console\Terminal;
 
 class LogCommand extends Command
 {
-    private $storage;
-    private $timeUnit;
-    private $timeUnitHandler;
-    private $characterReader;
+    private readonly CharacterReader $characterReader;
 
+    /**
+     * @param Registry<DriverInterface> $storage
+     */
     public function __construct(
-        Registry $storage,
-        TimeUnit $timeUnit,
-        TimeUnitHandler $timeUnitHandler,
-        CharacterReader $characterReader = null
+        private readonly Registry $storage,
+        private readonly TimeUnit $timeUnit,
+        private readonly TimeUnitHandler $timeUnitHandler,
+        private readonly OutputInterface $stdout,
+        ?CharacterReader $characterReader = null
     ) {
         parent::__construct();
-        $this->storage = $storage;
-        $this->timeUnitHandler = $timeUnitHandler;
-        $this->timeUnit = $timeUnit;
         $this->characterReader = $characterReader ?: new CharacterReader();
     }
 
-    public function configure()
+    public function configure(): void
     {
         $this->setName('log');
         $this->setDescription('List previously executed and stored benchmark runs.');
-        $this->setHelp(<<<'EOT'
+        $this->setHelp(
+            <<<'EOT'
 Show a list of previously executed benchmark runs.
 
     $ %command.full_name%
 
 NOTE: This is only possible when a storage driver has been configured.
 EOT
-    );
+        );
         // allow common time unit options
         TimeUnitHandler::configure($this);
 
         $this->addOption('no-pagination', 'P', InputOption::VALUE_NONE, 'Do not paginate');
+        $this->addOption('limit', null, InputOption::VALUE_REQUIRED, 'Limit number of entries');
     }
 
-    public function execute(InputInterface $input, OutputInterface $output)
+    public function execute(InputInterface $input, OutputInterface $output): int
     {
         $this->timeUnitHandler->timeUnitFromInput($input);
         $paginate = false === $input->getOption('no-pagination');
+        $limit = $input->getOption('limit');
+        assert(is_null($limit) || is_numeric($limit) || is_bool($limit));
 
         // if we have an application, get the terminal dimensions, if the
         // terminal dimensions are null then set the height to the arbitrary
@@ -82,13 +85,14 @@ EOT
         $height -= 1; // reduce height by one to accommodate the pagination prompt
         $nbRows = 0;
         $totalRows = 0;
+        $count = 0;
 
         foreach ($this->storage->getService()->history() as $entry) {
             $lines = [];
             $lines[] = sprintf('<comment>run %s</>', $entry->getRunId());
-            $lines[] = sprintf('Date:    ' . $entry->getDate()->format('c'));
-            $lines[] = sprintf('Branch:  ' . $entry->getVcsBranch());
-            $lines[] = sprintf('Tag:     ' . ($entry->getTag() ?: '<none>'));
+            $lines[] = 'Date:    ' . $entry->getDate()->format('c');
+            $lines[] = 'Branch:  ' . $entry->getVcsBranch();
+            $lines[] = 'Tag:     ' . ($entry->getTag() ?: '<none>');
             $lines[] = sprintf('Scale:   ' . '%d subjects, %d iterations, %d revolutions', $entry->getNbSubjects(), $entry->getNbIterations(), $entry->getNbRevolutions());
 
             $lines[] = sprintf(
@@ -106,7 +110,7 @@ EOT
             );
             $lines[] = '';
 
-            $nbRows = $this->writeLines($output, $nbRows, $height, $lines);
+            $nbRows = $this->writeLines($this->stdout, $nbRows, $height, $lines);
 
             // if pagination is diabled, then just pretend that the console height
             // is always greater than the number of rows.
@@ -117,11 +121,12 @@ EOT
             if ($paginate && $nbRows >= $height) {
                 $output->write(sprintf(
                     '<question>lines %s-%s any key to continue, <q> to quit</question>',
-                    $totalRows, $totalRows + $nbRows
+                    $totalRows,
+                    $totalRows + $nbRows
                 ));
                 $character = $this->characterReader->read();
 
-                if ($character == 'q') {
+                if ($character === 'q') {
                     break;
                 }
                 $output->write(PHP_EOL);
@@ -129,12 +134,21 @@ EOT
                 $totalRows += $nbRows;
                 $nbRows = 0;
             }
+
+            $count++;
+
+            if ($limit !== false && $count === (int)$limit) {
+                break;
+            }
         }
 
         return 0;
     }
 
-    private function writeLines($output, $nbRows, $height, $lines)
+    /**
+     * @param string[] $lines
+     */
+    private function writeLines(OutputInterface $output, int $nbRows, int $height, array $lines): int
     {
         $limit = count($lines);
 

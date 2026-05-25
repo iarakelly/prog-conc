@@ -14,21 +14,31 @@ namespace PhpBench\Benchmark\Metadata\Annotations;
 
 /**
  * @Annotation
+ *
  * @Taget({"METHOD", "CLASS"})
+ *
  * @Attributes({
+ *
  *    @Attribute("value", required = true, type="mixed")
  * })
  */
 class Iterations
 {
-    private $iterations;
+    /** @var int[] */
+    private readonly array $iterations;
 
+    /**
+     * @param array{value: int[]} $params
+     */
     public function __construct($params)
     {
         $this->iterations = (array) $params['value'];
     }
 
-    public function getIterations()
+    /**
+     * @return int[]
+     */
+    public function getIterations(): array
     {
         return $this->iterations;
     }

@@ -12,6 +12,7 @@
 
 namespace PhpBench\Registry;
 
+use InvalidArgumentException;
 use PhpBench\DependencyInjection\Container;
 use PhpBench\Json\JsonDecoder;
 use Symfony\Component\OptionsResolver\OptionsResolver;
@@ -26,32 +27,51 @@ use Symfony\Component\OptionsResolver\OptionsResolver;
  * ```
  * $config = $reg->getConfig('foobar');
  * ```
+ *
+ * @template T of object
+ *
+ * @extends Registry<T>
  */
 class ConfigurableRegistry extends Registry
 {
-    private $configs = [];
-    private $jsonDecoder;
+    /**
+     * @var array<string,array<string,mixed>>
+     */
+    private array $configs = [];
 
     /**
-     * @var array
+     * @var array<string,mixed>
      */
-    private $resolvedConfigs;
+    private ?array $resolvedConfigs = null;
 
+    /**
+     * @param array<string,string> $nameToServiceIdMap
+     */
     public function __construct(
-        $serviceType,
+        string $serviceType,
         Container $container,
-        JsonDecoder $jsonDecoder
+        private readonly JsonDecoder $jsonDecoder,
+        private readonly string $optionName,
+        array $nameToServiceIdMap = []
     ) {
         parent::__construct($serviceType, $container);
-        $this->jsonDecoder = $jsonDecoder;
+
+        foreach ($nameToServiceIdMap as $name => $serviceId) {
+            $this->registerService($name, $serviceId);
+        }
+    }
+
+    public function getOptionName(): string
+    {
+        return $this->optionName;
     }
 
     /**
      * Return the named configuration.
      *
-     * @return Config
+     * @param string|mixed[] $name
      */
-    public function getConfig($name)
+    public function getConfig($name): Config
     {
         if (is_array($name)) {
             $config = $name;
@@ -62,12 +82,19 @@ class ConfigurableRegistry extends Registry
         $name = trim($name);
         $name = $this->processRawCliConfig($name);
 
+        if (!isset($this->configs[$name]) && $this->hasService($name)) {
+            $this->setConfig($name, [
+                $this->serviceType => $name,
+            ]);
+        }
+
         if (!isset($this->configs[$name])) {
-            throw new \InvalidArgumentException(sprintf(
-                'No %s configuration named "%s" exists. Known configurations: "%s"',
+            throw new InvalidArgumentException(sprintf(
+                'No %s configuration or service named "%s" exists. Known configurations: "%s", known services: "%s"',
                 $this->serviceType,
                 $name,
-                implode('", "', array_keys($this->configs))
+                implode('", "', array_keys($this->configs)),
+                implode('", "', array_keys($this->services))
             ));
         }
 
@@ -79,18 +106,26 @@ class ConfigurableRegistry extends Registry
     }
 
     /**
+     * @return string[]
+     */
+    public function getConfigNames(): array
+    {
+        return array_keys($this->configs);
+    }
+
+    /**
      * Set a named configuration.
      *
      * Note that all configurations must be associated with a named service
      * via a configuration key equal to the configuration service type of this registry.
      *
-     * @param string $name
-     * @param array $config
+     * @param array<string, mixed> $config
+     *
      */
-    public function setConfig($name, array $config)
+    public function setConfig(string $name, array $config): void
     {
         if (isset($this->configs[$name])) {
-            throw new \InvalidArgumentException(sprintf(
+            throw new InvalidArgumentException(sprintf(
                 '%s config "%s" already exists.',
                 $this->serviceType,
                 $name
@@ -104,11 +139,8 @@ class ConfigurableRegistry extends Registry
      * Recursively merge configs (having the "extends" key) which extend
      * another report.
      *
-     * @param string $name
-     *
-     * @return void
      */
-    private function resolveConfig($name)
+    private function resolveConfig(string $name): void
     {
         $config = $this->configs[$name];
 
@@ -116,7 +148,7 @@ class ConfigurableRegistry extends Registry
             $extended = $this->getConfig($config['extends']);
 
             if (isset($config[$this->serviceType]) && ($extended[$this->serviceType] != $config[$this->serviceType])) {
-                throw new \InvalidArgumentException(sprintf(
+                throw new InvalidArgumentException(sprintf(
                     '%s configuration for service "%s" cannot extend configuration for different service "%s"',
                     $this->serviceType,
                     $config[$this->serviceType],
@@ -132,11 +164,12 @@ class ConfigurableRegistry extends Registry
         }
 
         if (!isset($config[$this->serviceType])) {
-            throw new \InvalidArgumentException(sprintf(
-                '%s configuration must EITHER indicate its target %s service with the "%s" key or extend an existing configuration with the "extends" key.',
+            throw new InvalidArgumentException(sprintf(
+                '%s configuration must EITHER indicate its target %s service with the "%s" key or extend an existing configuration with the "extends" key, it has keys "%s"',
                 $this->serviceType,
                 $this->serviceType,
-                $this->serviceType
+                $this->serviceType,
+                implode('", "', array_keys($config))
             ));
         }
 
@@ -164,11 +197,8 @@ class ConfigurableRegistry extends Registry
      * table
      * ````
      *
-     * @param string $rawConfig
-     *
-     * @return string
      */
-    private function processRawCliConfig($rawConfig)
+    private function processRawCliConfig(string $rawConfig): string
     {
         if (preg_match(Config::NAME_REGEX, $rawConfig)) {
             return $rawConfig;

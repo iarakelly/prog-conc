@@ -12,6 +12,8 @@
 
 namespace PhpBench\Math;
 
+use InvalidArgumentException;
+
 /**
  * Static class containing functions related to statistics.
  */
@@ -20,12 +22,9 @@ class Statistics
     /**
      * Return the standard deviation of a given population.
      *
-     * @param array $values
-     * @param bool $sample
-     *
-     * @return float
+     * @param array<int|float> $values
      */
-    public static function stdev(array $values, $sample = false)
+    public static function stdev(array $values, bool $sample = false): float
     {
         $variance = self::variance($values, $sample);
 
@@ -35,18 +34,17 @@ class Statistics
     /**
      * Return the variance for a given population.
      *
-     * @param array $values
-     * @param bool $sample
+     * @param array<int|float> $values
      *
-     * @return float
+     * @return int|float
      */
-    public static function variance(array $values, $sample = false)
+    public static function variance(array $values, bool $sample = false)
     {
         $average = self::mean($values);
         $sum = 0;
 
         foreach ($values as $value) {
-            $diff = pow($value - $average, 2);
+            $diff = ($value - $average) ** 2;
             $sum += $diff;
         }
 
@@ -62,11 +60,11 @@ class Statistics
     /**
      * Return the mean (average) value of the given values.
      *
-     * @param array $values
+     * @param array<int|float> $values
      *
-     * @return mixed
+     * @return int|float
      */
-    public static function mean($values)
+    public static function mean(array $values)
     {
         if (empty($values)) {
             return 0;
@@ -98,11 +96,9 @@ class Statistics
      * is potentially misleading, but When benchmarking this should be a very
      * rare occurance.
      *
-     * @param array $population
-     * @param int $space
-     * @param string $bandwidth
+     * @param array<int|float> $population
      */
-    public static function kdeMode(array $population, $space = 512, $bandwidth = null): float
+    public static function kdeMode(array $population, int $space = 512, ?string $bandwidth = null): float
     {
         if (count($population) === 1) {
             return current($population);
@@ -117,7 +113,7 @@ class Statistics
         }
 
         $kde = new Kde($population, $bandwidth);
-        $space = self::linspace(min($population), max($population), $space, true);
+        $space = self::linspace(min($population), max($population), $space);
         $dist = $kde->evaluate($space);
 
         $maxKeys = array_keys($dist, max($dist));
@@ -135,20 +131,17 @@ class Statistics
     /**
      * Return an array populated with $num numbers from $min to $max.
      *
-     * @param float $min
-     * @param float $max
-     * @param int $num
-     * @param bool $endpoint
      *
      * @return float[]
      */
-    public static function linspace($min, $max, $num = 50, $endpoint = true)
+    public static function linspace(float $min, float $max, int $num = 50, bool $endpoint = true): array
     {
         $range = $max - $min;
 
         if ($max == $min) {
-            throw new \InvalidArgumentException(sprintf(
-                'Min and max cannot be the same number: %s', $max
+            throw new InvalidArgumentException(sprintf(
+                'Min and max cannot be the same number: %s',
+                $max
             ));
         }
 
@@ -175,14 +168,11 @@ class Statistics
      * For a better implementation copy:
      *   http://docs.scipy.org/doc/numpy-1.10.1/reference/generated/numpy.histogram.html
      *
-     * @param array $values
-     * @param int $steps
-     * @param float $lowerBound
-     * @param float $upperBound
+     * @param array<int|float> $values
      *
-     * @return array
+     * @return array<string|int, int>
      */
-    public static function histogram(array $values, $steps = 10, $lowerBound = null, $upperBound = null)
+    public static function histogram(array $values, int $steps = 10, ?float $lowerBound = null, ?float $upperBound = null): array
     {
         $min = $lowerBound ?: min($values);
         $max = $upperBound ?: max($values);
@@ -210,9 +200,31 @@ class Statistics
             }
 
             $floor += $step;
-            $ceil += $step;
         }
 
         return $histogram;
+    }
+
+    public static function percentageDifference(float $value1, float $value2): float
+    {
+        if ($value1 == 0 && $value2 == 0) {
+            return 0;
+        }
+
+        if ($value1 == 0) {
+            return INF;
+        }
+
+        return (($value2 / $value1) - 1) * 100;
+    }
+
+    /**
+     * @param (int|float)[] $values
+     */
+    public static function rstdev(array $values, bool $sample = false): float
+    {
+        $mean = self::mean($values);
+
+        return $mean ? self::stdev($values, $sample) / $mean * 100 : 0;
     }
 }

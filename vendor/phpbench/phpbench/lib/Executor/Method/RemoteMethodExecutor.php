@@ -2,30 +2,24 @@
 
 namespace PhpBench\Executor\Method;
 
-use PhpBench\Benchmark\Metadata\BenchmarkMetadata;
-use PhpBench\Benchmark\Remote\Launcher;
+use PhpBench\Executor\MethodExecutorContext;
 use PhpBench\Executor\MethodExecutorInterface;
+use PhpBench\Remote\Launcher;
 
 class RemoteMethodExecutor implements MethodExecutorInterface
 {
-    /**
-     * @var Launcher
-     */
-    private $launcher;
-
-    public function __construct(Launcher $launcher)
+    public function __construct(private readonly Launcher $launcher)
     {
-        $this->launcher = $launcher;
     }
 
     /**
      * {@inheritdoc}
      */
-    public function executeMethods(BenchmarkMetadata $benchmark, array $methods): void
+    public function executeMethods(MethodExecutorContext $context, array $methods): void
     {
         $tokens = [
-            'class' => $benchmark->getClass(),
-            'file' => $benchmark->getPath(),
+            'class' => $context->getBenchmarkClass(),
+            'file' => $context->getBenchmarkPath(),
             'methods' => var_export($methods, true),
         ];
 

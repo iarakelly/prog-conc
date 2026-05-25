@@ -12,97 +12,90 @@
 
 namespace PhpBench\Progress\Logger;
 
+use PhpBench\Benchmark\RunnerConfig;
 use PhpBench\Model\Benchmark;
 use PhpBench\Model\Iteration;
 use PhpBench\Model\Subject;
 use PhpBench\Model\Suite;
 use PhpBench\Model\Variant;
 use PhpBench\Progress\LoggerInterface;
-use Symfony\Component\Console\Output\OutputInterface;
 
 class NullLogger implements LoggerInterface
 {
     /**
      * {@inheritdoc}
      */
-    public function setOutput(OutputInterface $output)
+    public function benchmarkStart(Benchmark $benchmark): void
     {
     }
 
     /**
      * {@inheritdoc}
      */
-    public function benchmarkStart(Benchmark $benchmark)
+    public function benchmarkEnd(Benchmark $benchmark): void
     {
     }
 
     /**
      * {@inheritdoc}
      */
-    public function benchmarkEnd(Benchmark $benchmark)
+    public function subjectStart(Subject $subject): void
     {
     }
 
     /**
      * {@inheritdoc}
      */
-    public function subjectStart(Subject $subject)
+    public function subjectEnd(Subject $subject): void
     {
     }
 
     /**
      * {@inheritdoc}
      */
-    public function subjectEnd(Subject $subject)
+    public function iterationStart(Iteration $iteration): void
     {
     }
 
     /**
      * {@inheritdoc}
      */
-    public function iterationStart(Iteration $iteration)
+    public function iterationEnd(Iteration $iteration): void
     {
     }
 
     /**
      * {@inheritdoc}
      */
-    public function iterationEnd(Iteration $iteration)
+    public function variantStart(Variant $variant): void
     {
     }
 
     /**
      * {@inheritdoc}
      */
-    public function variantStart(Variant $variant)
+    public function variantEnd(Variant $variant): void
     {
     }
 
     /**
      * {@inheritdoc}
      */
-    public function variantEnd(Variant $variant)
+    public function retryStart(int $rejectionCount): void
     {
     }
 
     /**
      * {@inheritdoc}
      */
-    public function retryStart($rejectionCount)
+    public function startSuite(RunnerConfig $config, Suite $suite): void
     {
     }
 
     /**
      * {@inheritdoc}
      */
-    public function startSuite(Suite $suite)
-    {
-    }
-
-    /**
-     * {@inheritdoc}
-     */
-    public function endSuite(Suite $suite)
+    public function endSuite(Suite $suite): void
     {
     }
 }

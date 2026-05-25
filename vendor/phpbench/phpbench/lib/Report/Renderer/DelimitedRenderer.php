@@ -12,107 +12,113 @@
 
 namespace PhpBench\Report\Renderer;
 
-use PhpBench\Console\OutputAwareInterface;
-use PhpBench\Dom\Document;
-use PhpBench\Dom\Element;
+use PhpBench\Expression\Printer;
 use PhpBench\Registry\Config;
+use PhpBench\Report\Model\Reports;
+use PhpBench\Report\Model\Table;
 use PhpBench\Report\RendererInterface;
-use Symfony\Component\Console\Helper\Table;
+use RuntimeException;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\OptionsResolver\OptionsResolver;
 
 /**
  * Renders the report as a delimited list.
  */
-class DelimitedRenderer implements RendererInterface, OutputAwareInterface
+class DelimitedRenderer implements RendererInterface
 {
-    /**
-     * @var OutputInterface
-     */
-    private $output;
+    final public const OPT_DELIMITER = 'delimiter';
+    final public const OPT_FILE = 'file';
+    final public const OPT_HEADER = 'header';
 
-    /**
-     * {@inheritdoc}
-     */
-    public function setOutput(OutputInterface $output)
+    public function __construct(private readonly OutputInterface $output, private readonly Printer $printer)
     {
-        $this->output = $output;
     }
 
     /**
      * Render the table.
      *
-     * @param Document $reportDom
-     * @param Config $config
      */
-    public function render(Document $reportDom, Config $config)
+    public function render(Reports $reports, Config $config): void
     {
-        /**
-         * @phpstan-ignore-next-line
-         */
-        foreach ($reportDom->firstChild->query('./report') as $reportEl) {
-            foreach ($reportEl->query('.//table') as $tableEl) {
-                $this->renderTableElement($tableEl, $config);
-            }
+        foreach ($reports->tables() as $table) {
+            $this->renderTable($table, $config);
         }
     }
 
-    protected function renderTableElement(Element $tableEl, $config)
+    /**
+     * @param Config $config
+     */
+    protected function renderTable(Table $table, $config): void
     {
         $rows = [];
 
-        if (true === $config['header']) {
-            $header = [];
-
-            foreach ($tableEl->query('.//row') as $rowEl) {
-                foreach ($rowEl->query('.//cell') as $cellEl) {
-                    $colName = $cellEl->getAttribute('name');
-                    $header[$colName] = $colName;
-                }
-            }
-            $rows[] = $header;
+        if (true === $config[self::OPT_HEADER]) {
+            $rows[] = $table->columnNames();
         }
 
-        foreach ($tableEl->query('.//row') as $rowEl) {
+        foreach ($table as $tableRow) {
             $row = [];
 
-            foreach ($rowEl->query('.//cell') as $cellEl) {
-                $colName = $cellEl->getAttribute('name');
-                $row[$colName] = $cellEl->nodeValue;
+            foreach ($tableRow as $name => $node) {
+                $row[$name] = $this->printer->print($node);
             }
 
             $rows[] = $row;
         }
 
-        if ($config['file']) {
-            $pointer = fopen($config['file'], 'w+');
-        } else {
-            $pointer = fopen('php://temp', 'w+');
+        $fname = $config[self::OPT_FILE] ?: 'php://temp';
+        $pointer = fopen($fname, 'w+');
+
+        if (false === $pointer) {
+            throw new RuntimeException(sprintf(
+                'Could not open file "%s"',
+                $fname
+            ));
         }
 
         foreach ($rows as $row) {
             // use fputcsv to handle escaping
-            fputcsv($pointer, $row, $config['delimiter']);
+            fputcsv(
+                $pointer,
+                $row,
+                $config[self::OPT_DELIMITER],
+                '"',
+                "\\"
+            );
         }
+
         rewind($pointer);
-        $this->output->write(stream_get_contents($pointer));
+
+        $contents = stream_get_contents($pointer);
+
+        if (false === $contents) {
+            throw new RuntimeException(sprintf(
+                'Could not read stream "%s"',
+                $fname
+            ));
+        }
+
+        $this->output->write($contents);
         fclose($pointer);
 
-        if ($config['file']) {
+        if ($config[self::OPT_FILE]) {
             $this->output->writeln('Dumped delimited file:');
-            $this->output->writeln($config['file']);
+            $this->output->writeln($config[self::OPT_FILE]);
         }
     }
 
     /**
      * {@inheritdoc}
      */
-    public function configure(OptionsResolver $options)
+    public function configure(OptionsResolver $options): void
     {
         $options->setDefaults([
-            'delimiter' => "\t",
-            'file' => null,
-            'header' => true,
+            self::OPT_DELIMITER => "\t",
+            self::OPT_FILE => null,
+            self::OPT_HEADER => true,
         ]);
+        $options->setAllowedTypes(self::OPT_DELIMITER, ['string']);
+        $options->setAllowedTypes(self::OPT_FILE, ['null', 'string']);
+        $options->setAllowedTypes(self::OPT_HEADER, ['bool']);
     }
 }

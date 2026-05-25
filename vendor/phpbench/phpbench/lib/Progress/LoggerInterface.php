@@ -12,40 +12,40 @@
 
 namespace PhpBench\Progress;
 
-use PhpBench\Console\OutputAwareInterface;
+use PhpBench\Benchmark\RunnerConfig;
 use PhpBench\Model\Benchmark;
 use PhpBench\Model\Iteration;
 use PhpBench\Model\Subject;
 use PhpBench\Model\Suite;
 use PhpBench\Model\Variant;
 
-interface LoggerInterface extends OutputAwareInterface
+interface LoggerInterface
 {
     /**
      * Log the end of a benchmark.
      *
-     * @param Benchmark $benchmark
+     * @return void
      */
     public function benchmarkEnd(Benchmark $benchmark);
 
     /**
      * Log the start of a benchmark.
      *
-     * @param Benchmark $benchmark
+     *  @return void
      */
     public function benchmarkStart(Benchmark $benchmark);
 
     /**
      * Log the end of a benchmarking subject.
      *
-     * @param Subject $subject
+     *  @return void
      */
     public function subjectEnd(Subject $subject);
 
     /**
      * Log the end of a benchmarking subject.
      *
-     * @param Subject $subject
+     * @return void
      */
     public function subjectStart(Subject $subject);
 
@@ -54,49 +54,49 @@ interface LoggerInterface extends OutputAwareInterface
      *
      * Errors should be checked using Variant->hasException()
      *
-     * @param Variant $variant
+     * @return void
      */
     public function variantEnd(Variant $variant);
 
     /**
      * Log the start of an iteration run.
      *
-     * @param Variant $variant
+     * @return void
      */
     public function variantStart(Variant $variant);
 
     /**
      * Log the end of an iteration.
      *
-     * @param Iteration $iteration
+     * @return void
      */
     public function iterationEnd(Iteration $iteration);
 
     /**
      * Log the start of an iteration.
      *
-     * @param Iteration $iteration
+     * @return void
      */
     public function iterationStart(Iteration $iteration);
 
     /**
      * Log the number of retries to be made.
      *
-     * @param int $rejectionCount
+     * @return void
      */
-    public function retryStart($rejectionCount);
+    public function retryStart(int $rejectionCount);
 
     /**
      * Called at the start of the suite run.
      *
-     * @param Suite $suite
+     * @return void
      */
-    public function startSuite(Suite $suite);
+    public function startSuite(RunnerConfig $config, Suite $suite);
 
     /**
      * Called at the end of the suite run.
      *
-     * @param Suite $suite
+     * @return void
      */
     public function endSuite(Suite $suite);
 }

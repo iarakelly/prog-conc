@@ -12,20 +12,22 @@
 
 namespace PhpBench\Benchmark;
 
-use PhpBench\Assertion\AssertionData;
-use PhpBench\Assertion\AssertionFailure;
+use DateTime;
+use Exception;
 use PhpBench\Assertion\AssertionProcessor;
-use PhpBench\Assertion\AssertionWarning;
+use PhpBench\Benchmark\Exception\RetryLimitReachedException;
 use PhpBench\Benchmark\Exception\StopOnErrorException;
-use PhpBench\Benchmark\Metadata\AssertionMetadata;
 use PhpBench\Benchmark\Metadata\BenchmarkMetadata;
 use PhpBench\Benchmark\Metadata\SubjectMetadata;
 use PhpBench\Environment\Supplier;
 use PhpBench\Executor\BenchmarkExecutorInterface;
+use PhpBench\Executor\ExecutionContext;
 use PhpBench\Executor\HealthCheckInterface;
+use PhpBench\Executor\MethodExecutorContext;
 use PhpBench\Executor\MethodExecutorInterface;
 use PhpBench\Model\Benchmark;
 use PhpBench\Model\Iteration;
+use PhpBench\Model\ParameterSetsCollection;
 use PhpBench\Model\ResolvedExecutor;
 use PhpBench\Model\Result\RejectionCountResult;
 use PhpBench\Model\Subject;
@@ -39,68 +41,29 @@ use PhpBench\Registry\ConfigurableRegistry;
 /**
  * The benchmark runner.
  */
-class Runner
+final class Runner
 {
-    const DEFAULT_ASSERTER = 'comparator';
+    public const DEFAULT_ASSERTER = 'comparator';
 
-    /**
-     * @var BenchmarkFinder
-     */
-    private $benchmarkFinder;
-
-    /**
-     * @var ConfigurableRegistry
-     */
-    private $executorRegistry;
-
-    /**
-     * @var Supplier
-     */
-    private $envSupplier;
-
-    /**
-     * @var float
-     */
-    private $retryThreshold;
-
-    /**
-     * @var string
-     */
-    private $configPath;
-
-    /**
-     * @var AssertionProcessor
-     */
-    private $assertionProcessor;
-
-    /**
-     * @var LoggerInterface
-     */
-    private $logger;
+    private LoggerInterface $logger;
 
     public function __construct(
-        BenchmarkFinder $benchmarkFinder,
-        ConfigurableRegistry $executorRegistry,
-        Supplier $envSupplier,
-        AssertionProcessor $assertion,
-        float $retryThreshold = null,
-        string $configPath = null
+        /**
+         * @var ConfigurableRegistry<covariant BenchmarkExecutorInterface>
+         */
+        private readonly ConfigurableRegistry $executorRegistry,
+        private readonly Supplier $envSupplier,
+        private readonly AssertionProcessor $assertionProcessor,
+        private readonly ?string $configPath = null
     ) {
         $this->logger = new NullLogger();
-        $this->benchmarkFinder = $benchmarkFinder;
-        $this->executorRegistry = $executorRegistry;
-        $this->envSupplier = $envSupplier;
-        $this->retryThreshold = $retryThreshold;
-        $this->configPath = $configPath;
-        $this->assertionProcessor = $assertion;
     }
 
     /**
      * Set the progress logger to use.
      *
-     * @param LoggerInterface $logger
      */
-    public function setProgressLogger(LoggerInterface $logger)
+    public function setProgressLogger(LoggerInterface $logger): void
     {
         $this->logger = $logger;
     }
@@ -109,20 +72,20 @@ class Runner
      * Run all benchmarks (or all applicable benchmarks) in the given path.
      *
      * The $name argument will set the "name" attribute on the "suite" element.
+     *
+     * @param iterable<BenchmarkMetadata> $benchmarkMetadatas
      */
-    public function run($path, RunnerConfig $config)
+    public function run(iterable $benchmarkMetadatas, RunnerConfig $config): Suite
     {
-        // build the collection of benchmarks to be executed.
-        $benchmarkMetadatas = $this->benchmarkFinder->findBenchmarks($path, $config->getFilters(), $config->getGroups());
         $suite = new Suite(
             $config->getTag(),
-            new \DateTime(),
+            new DateTime(),
             $this->configPath
         );
         $suite->setEnvInformations($this->envSupplier->getInformations());
 
         // log the start of the suite run.
-        $this->logger->startSuite($suite);
+        $this->logger->startSuite($config, $suite);
 
         try {
             /* @var BenchmarkMetadata $benchmarkMetadata */
@@ -130,7 +93,7 @@ class Runner
                 $benchmark = $suite->createBenchmark($benchmarkMetadata->getClass());
                 $this->runBenchmark($config, $benchmark, $benchmarkMetadata);
             }
-        } catch (StopOnErrorException $e) {
+        } catch (StopOnErrorException) {
         }
 
         $suite->generateUuid();
@@ -144,13 +107,15 @@ class Runner
         RunnerConfig $config,
         Benchmark $benchmark,
         BenchmarkMetadata $benchmarkMetadata
-    ) {
+    ): void {
         // determine the executor
         $executorConfig = $this->executorRegistry->getConfig($config->getExecutor());
-        /** @var BenchmarkExecutorInterface $executor */
-        $executor = $this->executorRegistry->getService($benchmarkMetadata->getExecutor() ? $benchmarkMetadata->getExecutor()->getName() : $executorConfig['executor']);
+        $benchmarkExecutor = $this->executorRegistry->getService(
+            $benchmarkMetadata->getExecutor() ? $benchmarkMetadata->getExecutor()->getName() : $executorConfig['executor']
+        );
+        $executor = $benchmarkExecutor;
 
-        $this->executeBeforeMethods($benchmarkMetadata, $executor);
+        $this->executeBeforeMethods($benchmarkMetadata, $benchmarkExecutor);
 
         $subjectMetadatas = array_filter($benchmarkMetadata->getSubjects(), function ($subjectMetadata) {
             if ($subjectMetadata->getSkip()) {
@@ -165,25 +130,26 @@ class Runner
 
         /** @var SubjectMetadata $subjectMetadata */
         foreach ($subjectMetadatas as $subjectMetadata) {
-
             // override parameters
-            $subjectMetadata->setIterations($config->getIterations($subjectMetadata->getIterations()));
-            $subjectMetadata->setRevs($config->getRevolutions($subjectMetadata->getRevs()));
+            $subjectMetadata->setIterations($config->getIterations($subjectMetadata->getIterations() ?? [1]));
+            $subjectMetadata->setRevs($config->getRevolutions($subjectMetadata->getRevs() ?? [1]));
             $subjectMetadata->setWarmup($config->getWarmup($subjectMetadata->getWarmup()));
             $subjectMetadata->setSleep($config->getSleep($subjectMetadata->getSleep()));
-            $subjectMetadata->setRetryThreshold($config->getRetryThreshold($this->retryThreshold));
+            $subjectMetadata->setRetryThreshold($config->getRetryThreshold($subjectMetadata->getRetryThreshold()));
 
             if ($config->getAssertions()) {
-                $subjectMetadata->setAssertions($this->assertionProcessor->assertionsFromRawCliConfig($config->getAssertions()));
+                $subjectMetadata->setAssertions($config->getAssertions());
+            }
+
+            if (null !== $config->getFormat()) {
+                $subjectMetadata->setFormat($config->getFormat());
             }
 
             // resolve executor config for this subject
             $executorConfig = $this->executorRegistry->getConfig($config->getExecutor());
 
             if ($executorMetadata = $subjectMetadata->getExecutor()) {
-                /** @var BenchmarkExecutorInterface $executor */
-                $executor = $this->executorRegistry->getService($executorMetadata->getName());
-                $executorConfig = $this->executorRegistry->getConfig($executorMetadata->getRegistryConfig());
+                $executorConfig = $this->executorRegistry->getConfig($executorMetadata->getName());
             }
             $resolvedExecutor = ResolvedExecutor::fromNameAndConfig($executorConfig['executor'], $executorConfig);
 
@@ -196,12 +162,13 @@ class Runner
             $subjectMetadata = $subjectMetadatas[$index];
 
             $this->logger->subjectStart($subject);
+            $executor = $this->executorRegistry->getService($subject->getExecutor()->getName());
             $this->runSubject($executor, $config, $subject, $subjectMetadata);
             $this->logger->subjectEnd($subject);
         }
         $this->logger->benchmarkEnd($benchmark);
 
-        $this->executeAfterMethods($benchmarkMetadata, $executor);
+        $this->executeAfterMethods($benchmarkMetadata, $benchmarkExecutor);
     }
 
     private function executeBeforeMethods(BenchmarkMetadata $benchmarkMetadata, BenchmarkExecutorInterface $executor): void
@@ -214,7 +181,10 @@ class Runner
             return;
         }
 
-        $executor->executeMethods($benchmarkMetadata, $benchmarkMetadata->getBeforeClassMethods());
+        $executor->executeMethods(
+            MethodExecutorContext::fromBenchmarkMetadata($benchmarkMetadata),
+            $benchmarkMetadata->getBeforeClassMethods()
+        );
     }
 
     private function executeAfterMethods(BenchmarkMetadata $benchmarkMetadata, BenchmarkExecutorInterface $executor): void
@@ -227,20 +197,37 @@ class Runner
             return;
         }
 
-        $executor->executeMethods($benchmarkMetadata, $benchmarkMetadata->getAfterClassMethods());
+        $executor->executeMethods(
+            MethodExecutorContext::fromBenchmarkMetadata($benchmarkMetadata),
+            $benchmarkMetadata->getAfterClassMethods()
+        );
     }
 
-    private function runSubject(BenchmarkExecutorInterface $executor, RunnerConfig $config, Subject $subject, SubjectMetadata $subjectMetadata)
+    private function runSubject(BenchmarkExecutorInterface $executor, RunnerConfig $config, Subject $subject, SubjectMetadata $subjectMetadata): Subject
     {
         if ($executor instanceof HealthCheckInterface) {
             $executor->healthCheck();
         }
 
-        $parameterSets = $config->getParameterSets($subjectMetadata->getParameterSets());
+        $collection = $subjectMetadata->getParameterSetsCollection();
+
+        $parameterSets = (static function (array $configuredParameterSets, ParameterSetsCollection $subjectParameterSets) {
+            if ($configuredParameterSets !== [[[]]]) {
+                return ParameterSetsCollection::fromUnserializedParameterSetsCollection($configuredParameterSets);
+            }
+
+            return $subjectParameterSets;
+        })($config->getParameterSets(), $subjectMetadata->getParameterSetsCollection());
+
+
         $paramsIterator = new CartesianParameterIterator($parameterSets);
 
         // create the variants.
         foreach ($paramsIterator as $parameterSet) {
+            if (false === $parameterSet->nameMatches($config->getVariantFilters())) {
+                continue;
+            }
+
             foreach ($subjectMetadata->getIterations() as $nbIterations) {
                 foreach ($subjectMetadata->getRevs() as $revolutions) {
                     foreach ($subjectMetadata->getWarmup() as $warmup) {
@@ -263,7 +250,8 @@ class Runner
 
             try {
                 $this->runVariant($executor, $subject->getExecutor()->getConfig(), $config, $subjectMetadata, $variant);
-            } catch (StopOnErrorException $stopException) {
+            } catch (StopOnErrorException $exception) {
+                $stopException = $exception;
             }
         }
 
@@ -280,16 +268,20 @@ class Runner
         RunnerConfig $config,
         SubjectMetadata $subjectMetadata,
         Variant $variant
-    ) {
+    ): void {
         $this->logger->variantStart($variant);
         $rejectCount = [];
+
+        if ($baseline = $config->getBaselines()->findBaselineForVariant($variant)) {
+            $variant->attachBaseline($baseline);
+        }
 
         try {
             foreach ($variant->getIterations() as $iteration) {
                 $rejectCount[spl_object_hash($iteration)] = 0;
                 $this->runIteration($executor, $executorConfig, $iteration, $subjectMetadata);
             }
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $variant->setException($e);
             $this->logger->variantEnd($variant);
 
@@ -308,40 +300,48 @@ class Runner
 
             foreach ($variant->getRejects() as $reject) {
                 $rejectCount[spl_object_hash($reject)]++;
+
+                if ($subjectMetadata->getRetryLimit() && $rejectCount[spl_object_hash($reject)] > $subjectMetadata->getRetryLimit()) {
+                    throw new RetryLimitReachedException(sprintf(
+                        'Retry limit of %s exceeded',
+                        $subjectMetadata->getRetryLimit()
+                    ));
+                }
+
                 $this->runIteration($executor, $executorConfig, $reject, $subjectMetadata);
             }
             $this->endVariant($subjectMetadata, $variant);
+
+            if (!isset($reject)) {
+                continue;
+            }
+
             $reject->setResult(new RejectionCountResult($rejectCount[spl_object_hash($reject)]));
         }
     }
 
-    private function endVariant(SubjectMetadata $subjectMetadata, Variant $variant)
+    private function endVariant(SubjectMetadata $subjectMetadata, Variant $variant): void
     {
         $variant->computeStats();
         $variant->resetAssertionResults();
 
-        /** @var AssertionMetadata $assertion */
         foreach ($subjectMetadata->getAssertions() as $assertion) {
-            try {
-                $this->assertionProcessor->assertWith(
-                    self::DEFAULT_ASSERTER,
-                    $assertion->getConfig(),
-                    AssertionData::fromDistribution($variant->getStats())
-                );
-            } catch (AssertionWarning $warning) {
-                $variant->addWarning($warning);
-            } catch (AssertionFailure $failure) {
-                $variant->addFailure($failure);
-            }
+            $result = $this->assertionProcessor->assert($variant, $assertion);
+            $variant->addAssertionResult($result);
         }
 
         $this->logger->variantEnd($variant);
     }
 
-    public function runIteration(BenchmarkExecutorInterface $executor, Config $executorConfig, Iteration $iteration, SubjectMetadata $subjectMetadata)
+    public function runIteration(BenchmarkExecutorInterface $executor, Config $executorConfig, Iteration $iteration, SubjectMetadata $subjectMetadata): void
     {
         $this->logger->iterationStart($iteration);
-        $executor->execute($subjectMetadata, $iteration, $executorConfig);
+
+        $results = $executor->execute(ExecutionContext::fromSubjectMetadataAndIteration($subjectMetadata, $iteration), $executorConfig);
+
+        foreach ($results as $result) {
+            $iteration->setResult($result);
+        }
 
         $sleep = $subjectMetadata->getSleep();
 

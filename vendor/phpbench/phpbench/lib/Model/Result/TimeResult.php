@@ -12,7 +12,8 @@
 
 namespace PhpBench\Model\Result;
 
-use Assert\Assertion;
+use OutOfBoundsException;
+use InvalidArgumentException;
 use PhpBench\Model\ResultInterface;
 
 /**
@@ -20,36 +21,37 @@ use PhpBench\Model\ResultInterface;
  */
 class TimeResult implements ResultInterface
 {
-    /**
-     * @var int
-     */
-    private $netTime;
+    private readonly int $netTime;
 
-    /**
-     * {@inheritdoc}
-     */
-    public static function fromArray(array $values)
+    private readonly int $revs;
+
+
+    public function __construct(int $netTime, int $revs = 1)
     {
-        return new self((int) $values['net']);
+        if ($netTime < 0) {
+            throw new InvalidArgumentException(sprintf('Net time cannot be less than zero, got "%s"', $netTime));
+        }
+
+        if ($revs < 1) {
+            throw new InvalidArgumentException(sprintf('Revs cannot be less than zero, got "%s"', $revs));
+        }
+
+        $this->netTime = $netTime;
+        $this->revs = $revs;
     }
 
-    /**
-     * @param mixed $time Time taken to execute the iteration in microseconds.
-     */
-    public function __construct($time)
+    public static function fromArray(array $values): ResultInterface
     {
-        Assertion::greaterOrEqualThan($time, 0, 'Time cannot be less than 0, got %s');
-        Assertion::integer($time);
-
-        $this->netTime = $time;
+        return new self(
+            (int) $values['net'],
+            array_key_exists('revs', $values) ? $values['revs'] : 1
+        );
     }
 
     /**
      * Return the net-time for this iteration.
-     *
-     * @return int
      */
-    public function getNet()
+    public function getNet(): int
     {
         return $this->netTime;
     }
@@ -57,15 +59,19 @@ class TimeResult implements ResultInterface
     /**
      * Return the time for the given number of revolutions.
      *
-     * @param int $revs
      *
-     * @throws \OutOfBoundsException If revs <= 0
+     * @throws OutOfBoundsException If revs <= 0
      *
      * @return float
      */
-    public function getRevTime($revs)
+    public function getRevTime(int $revs)
     {
-        Assertion::greaterThan($revs, 0, 'Revolutions must be more than 0, got %s');
+        if ($revs <= 0) {
+            throw new InvalidArgumentException(sprintf(
+                'Revolutions must be more than 0, got %s',
+                $revs
+            ));
+        };
 
         return $this->netTime / $revs;
     }
@@ -73,17 +79,19 @@ class TimeResult implements ResultInterface
     /**
      * {@inheritdoc}
      */
-    public function getMetrics()
+    public function getMetrics(): array
     {
         return [
             'net' => $this->netTime,
+            'revs' => $this->revs,
+            'avg' => $this->netTime / $this->revs,
         ];
     }
 
     /**
      * {@inheritdoc}
      */
-    public function getKey()
+    public function getKey(): string
     {
         return 'time';
     }

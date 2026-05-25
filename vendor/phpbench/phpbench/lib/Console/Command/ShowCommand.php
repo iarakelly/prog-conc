@@ -16,7 +16,8 @@ use PhpBench\Console\Command\Handler\DumpHandler;
 use PhpBench\Console\Command\Handler\ReportHandler;
 use PhpBench\Console\Command\Handler\TimeUnitHandler;
 use PhpBench\Registry\Registry;
-use PhpBench\Storage\UuidResolverInterface;
+use PhpBench\Storage\DriverInterface;
+use PhpBench\Storage\UuidResolver;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
@@ -27,36 +28,31 @@ use Symfony\Component\Console\Output\OutputInterface;
  */
 class ShowCommand extends Command
 {
-    private $storage;
-    private $reportHandler;
-    private $timeUnitHandler;
-    private $dumpHandler;
-    private $uuidResolver;
+    private const ARG_RUN_ID = 'run_id';
 
+    /**
+     * @param Registry<DriverInterface> $storage
+     */
     public function __construct(
-        Registry $storage,
-        ReportHandler $reportHandler,
-        TimeUnitHandler $timeUnitHandler,
-        DumpHandler $dumpHandler,
-        UuidResolverInterface $uuidResolver
+        private readonly Registry $storage,
+        private readonly ReportHandler $reportHandler,
+        private readonly TimeUnitHandler $timeUnitHandler,
+        private readonly DumpHandler $dumpHandler,
+        private readonly UuidResolver $refResolver
     ) {
         parent::__construct();
-        $this->storage = $storage;
-        $this->reportHandler = $reportHandler;
-        $this->timeUnitHandler = $timeUnitHandler;
-        $this->dumpHandler = $dumpHandler;
-        $this->uuidResolver = $uuidResolver;
     }
 
     /**
      * {@inheritdoc}
      */
-    public function configure()
+    public function configure(): void
     {
         $this->setName('show');
         $this->setDescription('Show the details of a specific run.');
-        $this->addArgument('run_id', InputArgument::REQUIRED, 'Run ID');
-        $this->setHelp(<<<'EOT'
+        $this->addArgument(self::ARG_RUN_ID, InputArgument::REQUIRED, 'Run ID');
+        $this->setHelp(
+            <<<'EOT'
 Show the results of a specific run.
 
     $ %command.full_name% <run id>
@@ -75,17 +71,20 @@ EOT
     /**
      * {@inheritdoc}
      */
-    public function execute(InputInterface $input, OutputInterface $output)
+    public function execute(InputInterface $input, OutputInterface $output): int
     {
         if (!$input->getOption('report')) {
             $input->setOption('report', ['aggregate']);
         }
 
+        /** @var string $runId */
+        $runId = $input->getArgument(self::ARG_RUN_ID);
+
         $storage = $this->storage->getService();
-        $collection = $storage->fetch($this->uuidResolver->resolve($input->getArgument('run_id')));
+        $collection = $storage->fetch($this->refResolver->resolve($runId));
         $this->timeUnitHandler->timeUnitFromInput($input);
         $this->dumpHandler->dumpFromInput($input, $output, $collection);
-        $this->reportHandler->reportsFromInput($input, $output, $collection);
+        $this->reportHandler->reportsFromInput($input, $collection);
 
         return 0;
     }

@@ -5,19 +5,10 @@ namespace PhpBench\Benchmark\Metadata;
 class ExecutorMetadata
 {
     /**
-     * @var string
+     * @param array<string, mixed> $config
      */
-    private $name;
-
-    /**
-     * @var array
-     */
-    private $config;
-
-    public function __construct(string $name, array $options)
+    public function __construct(private readonly string $name, private readonly array $config)
     {
-        $this->name = $name;
-        $this->config = $options;
     }
 
     public function getName(): string
@@ -25,12 +16,18 @@ class ExecutorMetadata
         return $this->name;
     }
 
+    /**
+     * @return array<string, mixed>
+     */
     public function getConfig(): array
     {
         return $this->config;
     }
 
-    public function getRegistryConfig()
+    /**
+     * @return array<string, mixed>
+     */
+    public function getRegistryConfig(): array
     {
         return array_merge($this->config, [
             'executor' => $this->getName(),

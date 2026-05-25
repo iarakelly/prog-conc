@@ -12,7 +12,6 @@
 
 namespace PhpBench\Model\Result;
 
-use Assert\Assertion;
 use PhpBench\Model\ResultInterface;
 
 /**
@@ -20,14 +19,10 @@ use PhpBench\Model\ResultInterface;
  */
 class MemoryResult implements ResultInterface
 {
-    private $real;
-    private $peak;
-    private $final;
-
     /**
      * {@inheritdoc}
      */
-    public static function fromArray(array $values)
+    public static function fromArray(array $values): ResultInterface
     {
         return new self(
             (int) $values['peak'],
@@ -37,19 +32,9 @@ class MemoryResult implements ResultInterface
     }
 
     /**
-     * @param int $peak
-     * @param int $real
-     * @param int $final
      */
-    public function __construct($peak, $real, $final)
+    public function __construct(private readonly int $peak, private readonly int $real, private readonly int $final)
     {
-        Assertion::integer($peak, 'Peak memory must be an integer, got "%s"');
-        Assertion::integer($real, 'Real memory must be an integer, got "%s"');
-        Assertion::integer($final, 'Final memory must be an integer, got "%s"');
-
-        $this->peak = $peak;
-        $this->real = $real;
-        $this->final = $final;
     }
 
     /**
@@ -57,10 +42,8 @@ class MemoryResult implements ResultInterface
      * `memory_get_peak_usage`.
      *
      * @see http://php.net/manual/en/function.memory-get-peak-usage.php
-     *
-     * @return int
      */
-    public function getPeak()
+    public function getPeak(): int
     {
         return $this->peak;
     }
@@ -70,10 +53,8 @@ class MemoryResult implements ResultInterface
      * as gathered by `memory_get_usage(true)`.
      *
      * @see http://php.net/manual/en/function.memory-get-usage.php
-     *
-     * @return int
      */
-    public function getReal()
+    public function getReal(): int
     {
         return $this->real;
     }
@@ -82,10 +63,8 @@ class MemoryResult implements ResultInterface
      * Get memory usage at the end of the script.
      *
      * @see http://php.net/manual/en/function.memory-get-usage.php
-     *
-     * @return int
      */
-    public function getFinal()
+    public function getFinal(): int
     {
         return $this->final;
     }
@@ -93,7 +72,7 @@ class MemoryResult implements ResultInterface
     /**
      * {@inheritdoc}
      */
-    public function getMetrics()
+    public function getMetrics(): array
     {
         return [
             'peak' => $this->peak,
@@ -105,7 +84,7 @@ class MemoryResult implements ResultInterface
     /**
      * {@inheritdoc}
      */
-    public function getKey()
+    public function getKey(): string
     {
         return 'mem';
     }

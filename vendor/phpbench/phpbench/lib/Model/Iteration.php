@@ -17,41 +17,29 @@ namespace PhpBench\Model;
  */
 class Iteration extends ResultCollection
 {
-    private $variant;
-    private $index;
-
     /**
-     * @param int $index
-     * @param Variant $variant
-     * @param array $results
      */
     public function __construct(
-        $index,
-        Variant $variant,
+        private readonly int $index,
+        private readonly Variant $variant,
         array $results = []
     ) {
-        $this->index = $index;
-        $this->variant = $variant;
         parent::__construct($results);
     }
 
     /**
      * Return the Variant that this
      * iteration belongs to.
-     *
-     * @return Variant
      */
-    public function getVariant()
+    public function getVariant(): Variant
     {
         return $this->variant;
     }
 
     /**
      * Return the index of this iteration.
-     *
-     * @return int
      */
-    public function getIndex()
+    public function getIndex(): int
     {
         return $this->index;
     }

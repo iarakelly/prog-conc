@@ -12,51 +12,61 @@
 
 namespace PhpBench\Model;
 
+use ArrayIterator;
+use Countable;
+use IteratorAggregate;
+
 /**
  * Essentially this class represents a single exception (the "top"
  * exception) and any parent exceptions of it.
  *
  * It is also linked to the variant which encountered the error.
+ *
+ * @implements IteratorAggregate<Error>
  */
-class ErrorStack implements \IteratorAggregate
+class ErrorStack implements IteratorAggregate, Countable
 {
     /**
-     * @var Error[]
-     */
-    private $errors;
-
-    /**
-     * @var Variant
-     */
-    private $variant;
-
-    /**
-     * @param Variant $variant
      * @param Error[] $errors
      */
-    public function __construct(Variant $variant, array $errors)
+    public function __construct(private readonly Variant $variant, private array $errors)
     {
-        $this->variant = $variant;
-        $this->errors = $errors;
     }
 
-    public function getVariant()
+    public function getVariant(): Variant
     {
         return $this->variant;
     }
 
-    public function getErrors()
+    /**
+     * @return Error[]
+     */
+    public function getErrors(): array
     {
         return $this->errors;
     }
 
+    /**
+     * @return false|Error
+     */
     public function getTop()
     {
         return reset($this->errors);
     }
 
-    public function getIterator()
+    /**
+     * @return ArrayIterator<array-key, Error>
+     */
+    public function getIterator(): ArrayIterator
     {
-        return new \ArrayIterator($this->errors);
+        return new ArrayIterator($this->errors);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function count(): int
+    {
+        return count($this->errors);
     }
 }

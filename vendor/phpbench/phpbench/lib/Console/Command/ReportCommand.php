@@ -12,8 +12,10 @@
 
 namespace PhpBench\Console\Command;
 
+use InvalidArgumentException;
 use PhpBench\Console\Command\Handler\DumpHandler;
 use PhpBench\Console\Command\Handler\ReportHandler;
+use PhpBench\Console\Command\Handler\RunnerHandler;
 use PhpBench\Console\Command\Handler\SuiteCollectionHandler;
 use PhpBench\Console\Command\Handler\TimeUnitHandler;
 use Symfony\Component\Console\Command\Command;
@@ -22,40 +24,32 @@ use Symfony\Component\Console\Output\OutputInterface;
 
 class ReportCommand extends Command
 {
-    private $reportHandler;
-    private $timeUnitHandler;
-    private $collectionHandler;
-    private $dumpHandler;
-
     public function __construct(
-        ReportHandler $reportHandler,
-        TimeUnitHandler $timeUnitHandler,
-        SuiteCollectionHandler $collectionHandler,
-        DumpHandler $dumpHandler
+        private readonly ReportHandler $reportHandler,
+        private readonly TimeUnitHandler $timeUnitHandler,
+        private readonly SuiteCollectionHandler $collectionHandler,
+        private readonly DumpHandler $dumpHandler
     ) {
         parent::__construct();
-        $this->reportHandler = $reportHandler;
-        $this->timeUnitHandler = $timeUnitHandler;
-        $this->collectionHandler = $collectionHandler;
-        $this->dumpHandler = $dumpHandler;
     }
 
-    public function configure()
+    public function configure(): void
     {
         $this->setName('report');
         $this->setDescription('Generate a report from storage or an XML file');
-        $this->setHelp(<<<'EOT'
+        $this->setHelp(
+            <<<'EOT'
 Generate report from the latest stored suite:
 
-    $ %command.full_name% --uuid=latest --report=aggregate
+    $ %command.full_name% --ref=latest --report=aggregate
+
+Generate report from a tag:
+
+    $ %command.full_name% --ref=foobar-tag --report=aggregate
 
 Generate report from a UUID (as determined from the <info>log</info> command:
 
-    $ %command.full_name% --uuid=133a2605fac74edabf046edeb9c5f7c4dc1a3aac --report=aggregate
-
-Generate from a query:
-
-    $ %command.full_name% --query='benchmark: "MyBench"' --report=aggregate
+    $ %command.full_name% --ref=133a2605fac74edabf046edeb9c5f7c4dc1a3aac --report=aggregate
 
 Generate from an XML file:
 
@@ -71,12 +65,13 @@ EOT
         TimeUnitHandler::configure($this);
         SuiteCollectionHandler::configure($this);
         DumpHandler::configure($this);
+        RunnerHandler::configureFilters($this);
     }
 
-    public function execute(InputInterface $input, OutputInterface $output)
+    public function execute(InputInterface $input, OutputInterface $output): int
     {
         if (!$input->getOption('report')) {
-            throw new \InvalidArgumentException(
+            throw new InvalidArgumentException(
                 'You must specify or configure at least one report, e.g.: --report=default'
             );
         }
@@ -84,7 +79,7 @@ EOT
         $this->timeUnitHandler->timeUnitFromInput($input);
         $collection = $this->collectionHandler->suiteCollectionFromInput($input);
         $this->dumpHandler->dumpFromInput($input, $output, $collection);
-        $this->reportHandler->reportsFromInput($input, $output, $collection);
+        $this->reportHandler->reportsFromInput($input, $collection);
 
         return 0;
     }

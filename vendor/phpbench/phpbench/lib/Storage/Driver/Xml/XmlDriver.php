@@ -12,8 +12,11 @@
 
 namespace PhpBench\Storage\Driver\Xml;
 
+use InvalidArgumentException;
+use PhpBench\Storage\HistoryIteratorInterface;
+use DateTime;
+use Exception;
 use PhpBench\Dom\Document;
-use PhpBench\Expression\Constraint\Constraint;
 use PhpBench\Model\SuiteCollection;
 use PhpBench\Serializer\XmlDecoder;
 use PhpBench\Serializer\XmlEncoder;
@@ -28,26 +31,24 @@ use Symfony\Component\Filesystem\Filesystem;
  */
 class XmlDriver implements DriverInterface
 {
-    private $path;
-    private $xmlEncoder;
-    private $xmlDecoder;
-    private $filesystem;
+    final public const UUID_LENGTH = 40;
+    private readonly Filesystem $filesystem;
 
-    public function __construct($path, XmlEncoder $xmlEncoder, XmlDecoder $xmlDecoder, Filesystem $filesystem = null)
+    /**
+     * @param string $path
+     */
+    public function __construct(private $path, private readonly XmlEncoder $xmlEncoder, private readonly XmlDecoder $xmlDecoder, ?Filesystem $filesystem = null)
     {
-        $this->path = $path;
-        $this->xmlEncoder = $xmlEncoder;
-        $this->xmlDecoder = $xmlDecoder;
         $this->filesystem = $filesystem ?: new Filesystem();
     }
 
-    public function store(SuiteCollection $collection)
+    public function store(SuiteCollection $collection): ?string
     {
         foreach ($collection->getSuites() as $suite) {
             $path = $this->getPath($suite->getUuid());
 
-            if (false === $this->filesystem->exists(dirname($path))) {
-                $this->filesystem->mkdir(dirname($path));
+            if (false === $this->filesystem->exists(dirname((string) $path))) {
+                $this->filesystem->mkdir(dirname((string) $path));
             }
 
             $collection = new SuiteCollection([$suite]);
@@ -61,36 +62,12 @@ class XmlDriver implements DriverInterface
     /**
      * {@inheritdoc}
      */
-    public function delete($uuid)
-    {
-        if (!$this->has($uuid)) {
-            throw new \InvalidArgumentException(sprintf(
-                'Cannot find run with UUID "%s"', $uuid
-            ));
-        }
-
-        $this->filesystem->remove($this->getPath($uuid));
-    }
-
-    /**
-     * {@inheritdoc}
-     */
-    public function query(Constraint $constraint)
-    {
-        // TODO: Make this a separate interface?
-        throw new \BadMethodCallException(
-            'The XML storage driver does not support querying.'
-        );
-    }
-
-    /**
-     * {@inheritdoc}
-     */
-    public function fetch($runId)
+    public function fetch(string $runId): SuiteCollection
     {
         if (!$this->has($runId)) {
-            throw new \InvalidArgumentException(sprintf(
-                'Cannot find run with UUID "%s"', $runId
+            throw new InvalidArgumentException(sprintf(
+                'Cannot find run with reference "%s"',
+                $runId
             ));
         }
 
@@ -106,11 +83,11 @@ class XmlDriver implements DriverInterface
     /**
      * {@inheritdoc}
      */
-    public function has($runId)
+    public function has($runId): bool
     {
         $path = $this->getPath($runId);
 
-        if (false === $path) {
+        if (null === $path) {
             return false;
         }
 
@@ -120,17 +97,21 @@ class XmlDriver implements DriverInterface
     /**
      * {@inheritdoc}
      */
-    public function history()
+    public function history(): HistoryIteratorInterface
     {
         return new HistoryIterator($this->xmlDecoder, $this->path);
     }
 
-    private function getPath($uuid)
+    private function getPath(string $uuid): ?string
     {
+        if (strlen($uuid) !== self::UUID_LENGTH) {
+            return null;
+        }
+
         try {
-            $date = new \DateTime((string) hexdec(substr($uuid, 0, 7)));
-        } catch (\Exception $e) {
-            return false;
+            $date = new DateTime((string) hexdec(substr($uuid, 0, 7)));
+        } catch (Exception) {
+            return null;
         }
 
         return sprintf(

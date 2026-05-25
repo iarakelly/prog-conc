@@ -12,27 +12,31 @@
 
 namespace PhpBench\Model;
 
-use InvalidArgumentException;
+use Stringable;
+use PhpBench\Storage\Exception\InvalidTagException;
 
-final class Tag
+final class Tag implements Stringable
 {
-    /**
-     * @var string
-     */
-    private $tag;
+    public const REGEX_PATTERN = '[\\w\.]+';
+
+    private readonly string $tag;
 
     public function __construct(string $tag)
     {
-        if (!preg_match('/^[\w]+$/', $tag)) {
-            throw new InvalidArgumentException(sprintf(
-                'Tag mast be non-empty string of alphanumeric characters and _, got "%s"',
+        // be restrictive with tag chars as:
+        //
+        // - `-` is reserved currently (e.g. my-tag-5 will show the 5th instance of my-tag)
+        // - we don't know how tags will be used in storage implementations
+        if (!preg_match(sprintf('/^%s$/', self::REGEX_PATTERN), $tag)) {
+            throw new InvalidTagException(sprintf(
+                'Tag must be non-empty string of alphanumeric characters, "." or "_". Got "%s"',
                 $tag
             ));
         }
-        $this->tag = $tag;
+        $this->tag = strtolower($tag);
     }
 
-    public function __toString()
+    public function __toString(): string
     {
         return $this->tag;
     }

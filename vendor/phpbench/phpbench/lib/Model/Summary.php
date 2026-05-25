@@ -16,16 +16,21 @@ use PhpBench\Math\Statistics;
 
 /**
  * Provides summary statistics for the entires suite.
+ *
+ * @phpstan-type Stats array{stdev: array<int|float>, mean: array<int|float>, mode: array<int|float>, rstdev: array<int|float>, variance: array<int|float>, min: array<int|float>, max: array<int|float>, sum: array<int|float>}
  */
 class Summary
 {
-    private $nbSubjects = 0;
-    private $nbIterations = 0;
-    private $nbRejects = 0;
-    private $nbRevolutions = 0;
-    private $nbFailures = 0;
-    private $nbWarnings = 0;
-    private $stats = [
+    private int $nbSubjects = 0;
+    private int $nbIterations = 0;
+    private int $nbRejects = 0;
+    private int $nbRevolutions = 0;
+    private int $nbFailures = 0;
+    private int $nbAssertions = 0;
+    private int $nbErrors = 0;
+
+    /** @var Stats */
+    private array $stats = [
         'stdev' => [],
         'mean' => [],
         'mode' => [],
@@ -35,10 +40,17 @@ class Summary
         'max' => [],
         'sum' => [],
     ];
-    private $errorStacks = [];
+
+    private bool $opCacheEnabled = false;
+
+    private bool $xdebugEnabled = false;
 
     /**
-     * @param Suite $suite
+     * @var string|null
+     */
+    private $phpVersion = null;
+
+    /**
      */
     public function __construct(Suite $suite)
     {
@@ -49,91 +61,145 @@ class Summary
                 foreach ($subject->getVariants() as $variant) {
                     $this->nbIterations += count($variant);
                     $this->nbRevolutions += $variant->getRevolutions();
-                    $this->nbFailures += count($variant->getFailures());
-                    $this->nbWarnings += count($variant->getWarnings());
+                    $this->nbFailures += $variant->getAssertionResults()->failures()->count();
+                    $this->nbAssertions += $variant->getAssertionResults()->count();
+                    $this->nbErrors += $variant->getErrorStack()->count();
                     $this->nbRejects += $variant->getRejectCount();
 
                     if ($variant->hasErrorStack()) {
-                        $this->errorStacks[] = $variant->getErrorStack();
-
                         continue;
                     }
 
-                    foreach ($variant->getStats() as $name => $value) {
+                    foreach ($variant->getStats()->getStats() as $name => $value) {
                         $this->stats[$name][] = $value;
                     }
                 }
             }
         }
+
+        $env = $suite->getEnvInformations();
+
+        if (isset($env['opcache'])) {
+            $this->opCacheEnabled = (bool)($env['opcache']['enabled'] ?? false);
+        }
+
+        if (isset($env['php'])) {
+            $this->xdebugEnabled = (bool)($env['php']['xdebug'] ?? false);
+            $this->phpVersion = $env['php']['version'] ?? null;
+        }
     }
 
-    public function getNbSubjects()
+    public function getNbSubjects(): int
     {
         return $this->nbSubjects;
     }
 
-    public function getNbIterations()
+    public function getNbIterations(): int
     {
         return $this->nbIterations;
     }
 
-    public function getNbRejects()
+    public function getNbRejects(): int
     {
         return $this->nbRejects;
     }
 
-    public function getNbRevolutions()
+    public function getNbRevolutions(): int
     {
         return $this->nbRevolutions;
     }
 
-    public function getNbFailures()
+    public function getNbFailures(): int
     {
         return $this->nbFailures;
     }
 
-    public function getNbWarnings()
+    public function getNbErrors(): int
     {
-        return $this->nbWarnings;
+        return $this->nbErrors;
     }
 
-    public function getStats()
+    public function getNbAssertions(): int
+    {
+        return $this->nbAssertions;
+    }
+
+    /**
+     * @return Stats
+     */
+    public function getStats(): array
     {
         return $this->stats;
     }
 
+    /**
+     * @return int|float
+     */
     public function getMinTime()
     {
         return $this->stats['min'] ? min($this->stats['min']) : 0;
     }
 
+    /**
+     * @return int|float
+     */
     public function getMaxTime()
     {
         return $this->stats['max'] ? min($this->stats['max']) : 0;
     }
 
+    /**
+     * @return int|float
+     */
     public function getMeanTime()
     {
         return Statistics::mean($this->stats['mean']);
     }
 
+    /**
+     * @return int|float
+     */
     public function getModeTime()
     {
         return Statistics::mean($this->stats['mode']);
     }
 
+    /**
+     * @return int|float
+     */
     public function getTotalTime()
     {
         return array_sum($this->stats['sum']);
     }
 
+    /**
+     * @return int|float
+     */
     public function getMeanStDev()
     {
         return Statistics::mean($this->stats['stdev']);
     }
 
+    /**
+     * @return int|float
+     */
     public function getMeanRelStDev()
     {
         return Statistics::mean($this->stats['rstdev']);
+    }
+
+    public function getOpcacheEnabled(): bool
+    {
+        return $this->opCacheEnabled;
+    }
+
+    public function getXdebugEnabled(): bool
+    {
+        return $this->xdebugEnabled;
+    }
+
+    public function getPhpVersion(): ?string
+    {
+        return $this->phpVersion;
     }
 }

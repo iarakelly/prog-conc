@@ -12,127 +12,150 @@
 
 namespace PhpBench;
 
-use Composer\Autoload\ClassLoader;
+use Composer\InstalledVersions;
+use PhpBench\Config\ConfigLoader;
+use PhpBench\Console\Application;
 use PhpBench\DependencyInjection\Container;
+use PhpBench\Exception\ConfigurationPreProcessingError;
+use PhpBench\Extension\ConsoleExtension;
+use PhpBench\Extension\CoreExtension;
+use PhpBench\Extension\ExpressionExtension;
+use PhpBench\Extension\ReportExtension;
+use PhpBench\Extension\RunnerExtension;
+use PhpBench\Extension\StorageExtension;
+use PhpBench\Extensions\XDebug\XDebugExtension;
 use PhpBench\Json\JsonDecoder;
-use Seld\JsonLint\JsonParser;
-use Seld\JsonLint\ParsingException;
-use Symfony\Component\Debug\ErrorHandler;
-use Webmozart\PathUtil\Path;
+use Symfony\Component\Filesystem\Path;
+use Symfony\Component\Console\Input\ArgvInput;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Output\ConsoleOutput;
+use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Style\SymfonyStyle;
+use Throwable;
+
+use function set_error_handler;
 
 class PhpBench
 {
     // PHPBench version: @git_tag@ will be replaced by box.
-    const VERSION = '@git_tag@';
+    final public const VERSION = '@git_tag@';
 
-    // URL to phar and version file for self-updating
-    const PHAR_URL = 'https://phpbench.github.io/phpbench/phpbench.phar';
-    const PHAR_VERSION_URL = 'https://phpbench.github.io/phpbench/phpbench.phar.version';
-
-    public static function run(ClassLoader $autoloader)
+    public static function run(?InputInterface $input = null, ?OutputInterface $output = null): void
     {
-        // Converts warnings to exceptions
-        ErrorHandler::register();
+        $input = $input ?: new ArgvInput();
+        self::registerErrorHandler();
 
-        $config = self::loadConfig();
+        $container = self::loadContainer($input);
+        $container->get(Application::class)->run(
+            $input,
+            $output ?? $container->get(ConsoleExtension::SERVICE_OUTPUT_ERR)
+        );
+    }
 
-        if (isset($config['extension_autoloader']) && $config['extension_autoloader']) {
-            $autoloadFile = $config['extension_autoloader'];
+    public static function loadContainer(InputInterface $input, ?string $cwd = null): Container
+    {
+        $config = self::loadConfig($input, $cwd ?: getcwd());
 
-            if (!file_exists($autoloadFile)) {
-                throw new \InvalidArgumentException(sprintf(
-                    'Could not find extension autoload file "%s"',
-                    $autoloadFile
-                ));
-            }
+        $extensions = array_merge([
+            CoreExtension::class,
+            RunnerExtension::class,
+            ReportExtension::class,
+            ExpressionExtension::class,
+            StorageExtension::class,
+            XDebugExtension::class,
+            ConsoleExtension::class,
+        ], $config[CoreExtension::PARAM_EXTENSIONS]);
 
-            $autoloader->unregister();
-
-            include $autoloadFile;
-            $autoloader->register(true);
-        }
-
-        $extensions = $config['extensions'];
-        $extensions[] = 'PhpBench\Extension\CoreExtension';
-        unset($config['extensions']);
-        $container = new Container($extensions, $config);
+        $container = new Container(array_unique($extensions), $config);
         $container->init();
-        $container->get('console.application')->run();
+
+        return $container;
     }
 
     /**
-     * If the path is relative we need to use the current working path
-     * because otherwise it will be the script path, which is wrong in the
-     * context of a PHAR.
-     *
-     * @param string $path
-     *
-     * @return string
+     * @return array<string,mixed>
      */
-    public static function normalizePath($path)
+    private static function loadConfig(InputInterface $input, string $cwd): array
     {
-        if (Path::isAbsolute($path)) {
-            return $path;
-        }
-
-        return getcwd() . DIRECTORY_SEPARATOR . $path;
-    }
-
-    private static function loadConfig()
-    {
-        global $argv;
-
         $configPaths = [];
         $extensions = [];
         $configOverride = [];
+        $profile = null;
+        $argBootstrap = null;
 
-        foreach ($argv as $arg) {
-            if ($configFile = self::parseOption($arg, 'config')) {
-                if (!file_exists($configFile)) {
-                    echo sprintf('Config file "%s" does not exist', $configFile) . PHP_EOL;
+        if ($value = $input->getParameterOption(['--working-dir'])) {
+            $cwd = Path::makeAbsolute($value, getcwd());
+        }
 
-                    exit(1);
-                }
-                $configPaths = [$configFile];
+        if ($configFile = $input->getParameterOption(['--config'])) {
+            if (!file_exists($configFile)) {
+                echo sprintf('Config file "%s" does not exist', $configFile) . PHP_EOL;
+
+                exit(1);
             }
 
-            if ($value = self::parseOption($arg, 'bootstrap', 'b')) {
-                $configOverride['bootstrap'] = self::getBootstrapPath(getcwd(), $value);
-            }
+            $configFile = Path::makeAbsolute($configFile, $cwd);
+            $configPaths = [$configFile];
+        }
 
-            if ($value = self::parseOption($arg, 'extension')) {
-                $extensions[] = $value;
-            }
+        if ($value = $input->getParameterOption(['--bootstrap', '-b='])) {
+            $argBootstrap = $value;
+            $configOverride[RunnerExtension::PARAM_BOOTSTRAP] = $value;
+        }
 
-            if ($value = self::parseOption($arg, 'php-binary')) {
-                $configOverride['php_binary'] = $value;
-            }
+        if ($input->hasParameterOption(['--no-ansi'])) {
+            $configOverride[ConsoleExtension::PARAM_ANSI] = false;
+        }
 
-            if ($value = self::parseOption($arg, 'php-wrapper')) {
-                $configOverride['php_wrapper'] = $value;
-            }
+        if ($input->hasParameterOption(['--ansi'])) {
+            $configOverride[ConsoleExtension::PARAM_ANSI] = true;
+        }
 
-            if ($value = self::parseOption($arg, 'php-config')) {
-                $jsonParser = new JsonDecoder();
-                $value = $jsonParser->decode($value);
-                $configOverride['php_config'] = $value;
-            }
+        if ($value = $input->getParameterOption(['--extension'])) {
+            $extensions[] = $value;
+        }
 
-            if ($arg == '--php-disable-ini') {
-                $configOverride['php_disable_ini'] = true;
-            }
+        if ($value = $input->getParameterOption(['--php-binary'])) {
+            $configOverride[RunnerExtension::PARAM_PHP_BINARY] = $value;
+        }
+
+        if ($value = $input->getParameterOption(['--php-wrapper'])) {
+            $configOverride[RunnerExtension::PARAM_PHP_WRAPPER] = $value;
+        }
+
+        if ($value = $input->getParameterOption(['--php-config'])) {
+            $jsonParser = new JsonDecoder();
+            $value = $jsonParser->decode($value);
+            $configOverride[RunnerExtension::PARAM_PHP_CONFIG] = $value;
+        }
+
+        if ($input->hasParameterOption(['--php-disable-ini'])) {
+            $configOverride[RunnerExtension::PARAM_PHP_DISABLE_INI] = true;
+        }
+
+        if ($value = $input->getParameterOption(['--profile'])) {
+            $profile = $value;
+        }
+
+        if ($value = $input->getParameterOption(['--theme'])) {
+            $configOverride['expression.theme'] = $value;
+        }
+
+        if ($input->hasParameterOption(['-vvv'])) {
+            $configOverride[CoreExtension::PARAM_DEBUG] = true;
         }
 
         if (empty($configPaths)) {
             $configPaths = [
-                getcwd() . '/phpbench.json',
-                getcwd() . '/phpbench.json.dist',
+                $cwd . '/phpbench.json',
+                $cwd . '/phpbench.json.dist',
             ];
         }
 
         $config = [
-            'extensions' => [],
-            'bootstrap' => null,
+            CoreExtension::PARAM_EXTENSIONS => [],
+            RunnerExtension::PARAM_BOOTSTRAP => null,
+            CoreExtension::PARAM_WORKING_DIR => $cwd,
         ];
 
         foreach ($configPaths as $configPath) {
@@ -140,29 +163,12 @@ class PhpBench
                 continue;
             }
 
-            $configRaw = file_get_contents($configPath);
-
-            try {
-                $parser = new JsonParser();
-                $parser->parse($configRaw);
-            } catch (ParsingException $e) {
-                echo 'Error parsing config file:' . PHP_EOL . PHP_EOL;
-                echo $e->getMessage();
-
-                exit(1);
-            }
-
             $config = array_merge(
                 $config,
-                json_decode($configRaw, true)
+                ConfigLoader::create()->load($configPath)
             );
-            $config['config_path'] = $configPath;
 
-            if ($config['bootstrap']) {
-                $config['bootstrap'] = self::getBootstrapPath(
-                    dirname($configPath), $config['bootstrap']
-                );
-            }
+            $config[CoreExtension::PARAM_CONFIG_PATH] = $configPath;
 
             break;
         }
@@ -172,39 +178,89 @@ class PhpBench
             $configOverride
         );
 
+        if ($configFile && !$argBootstrap && $config[RunnerExtension::PARAM_BOOTSTRAP]) {
+            $config[RunnerExtension::PARAM_BOOTSTRAP] = Path::makeAbsolute($config[RunnerExtension::PARAM_BOOTSTRAP], dirname($configFile));
+        } elseif ($config[RunnerExtension::PARAM_BOOTSTRAP]) {
+            $config[RunnerExtension::PARAM_BOOTSTRAP] = Path::makeAbsolute($config[RunnerExtension::PARAM_BOOTSTRAP], $cwd);
+        }
+
+        if (null !== $profile) {
+            $config = self::mergeProfile($config, $profile);
+        }
+        unset($config[CoreExtension::PARAM_PROFILES]);
+
         // add any manually specified extensions
         foreach ($extensions as $extension) {
-            $config['extensions'][] = $extension;
+            $config[CoreExtension::PARAM_EXTENSIONS][] = $extension;
+        }
+
+        if (isset($config[ReportExtension::PARAM_OUTPUT_DIR_HTML])) {
+            unset($config[ReportExtension::PARAM_OUTPUT_DIR_HTML]);
         }
 
         return $config;
     }
 
-    private static function getBootstrapPath($configDir, $bootstrap)
+    private static function mergeProfile(array $config, string $profile): array
     {
-        if (!$bootstrap) {
-            return;
+        if (!isset($config[CoreExtension::PARAM_PROFILES][$profile])) {
+            throw new ConfigurationPreProcessingError(sprintf(
+                'Unknown profile "%s" specified, defined profiles: "%s"',
+                $profile,
+                implode('", "', array_keys($config[CoreExtension::PARAM_PROFILES] ?? []))
+            ));
         }
 
-        // if the path is absolute, return it unmodified
-        if ('/' === substr($bootstrap, 0, 1)) {
-            return $bootstrap;
-        }
-
-        return $configDir . '/' . $bootstrap;
+        return array_merge($config, $config[CoreExtension::PARAM_PROFILES][$profile]);
     }
 
-    private static function parseOption($arg, $longName, $shortName = null)
+    private static function registerErrorHandler(): void
     {
-        $longOption = '--' . $longName . '=';
-        $shortOption = '-' . $shortName .'=';
+        $input = new ArgvInput();
+        $output = (new ConsoleOutput())->getErrorOutput();
 
-        foreach ([$longOption, $shortOption] as $option) {
-            if (0 !== strpos($arg, $option)) {
-                continue;
+        $format = new SymfonyStyle($input, $output);
+        set_error_handler(function (
+            int $code,
+            string $message,
+            string $file,
+            int $line,
+            ?array $context = null
+        ) use ($format): ?bool {
+            $format->error(sprintf(
+                '%s in %s:%s',
+                $message,
+                $file,
+                $line
+            ));
+
+            exit(255);
+        }, E_USER_ERROR);
+
+        set_exception_handler(function (Throwable $throwable) use ($format, $input): void {
+            $format->text(sprintf('%s:%s', $throwable->getFile(), $throwable->getLine()));
+            $format->error($throwable->getMessage());
+
+            if ($input->hasParameterOption(['-v', '-vv', '-vvv'])) {
+                $format->block($throwable->getTraceAsString());
             }
 
-            return substr($arg, strlen($option));
+            exit(255);
+        });
+    }
+
+    public static function version(): string
+    {
+        // do not use the literal `@git_tag@` as it would be replaced by box.
+        if (self::VERSION === '@' . 'git_tag' . '@') {
+            if (!class_exists(InstalledVersions::class)) {
+                return 'unknown version';
+            }
+
+            return InstalledVersions::getPrettyVersion('phpbench/phpbench');
         }
+
+        /** @phpstan-ignore-next-line */
+        return self::VERSION;
     }
 }

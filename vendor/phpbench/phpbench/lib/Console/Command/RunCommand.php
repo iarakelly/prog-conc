@@ -16,11 +16,11 @@ use PhpBench\Benchmark\RunnerConfig;
 use PhpBench\Console\Command\Handler\DumpHandler;
 use PhpBench\Console\Command\Handler\ReportHandler;
 use PhpBench\Console\Command\Handler\RunnerHandler;
+use PhpBench\Console\Command\Handler\SuiteCollectionHandler;
 use PhpBench\Console\Command\Handler\TimeUnitHandler;
 use PhpBench\Model\SuiteCollection;
 use PhpBench\Registry\Registry;
 use PhpBench\Storage\DriverInterface;
-use RuntimeException;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -28,54 +28,43 @@ use Symfony\Component\Console\Output\OutputInterface;
 
 class RunCommand extends Command
 {
-    const EXIT_CODE_ERROR = 1;
-    const EXIT_CODE_FAILURE = 2;
+    final public const EXIT_CODE_ERROR = 1;
+    final public const EXIT_CODE_FAILURE = 2;
+
+    final public const OPT_ITERATIONS = 'iterations';
+    final public const OPT_WARMUP = 'warmup';
+    final public const OPT_RETRY_THRESHOLD = 'retry-threshold';
+    final public const OPT_SLEEP = 'sleep';
+    final public const OPT_TAG = 'tag';
+    final public const OPT_STORE = 'store';
+    final public const OPT_TOLERATE_FAILURE = 'tolerate-failure';
 
     /**
-     * @var RunnerHandler
+     * @param Registry<DriverInterface> $storage
      */
-    private $runnerHandler;
-
-    /**
-     * @var ReportHandler
-     */
-    private $reportHandler;
-
-    /**
-     * @var TimeUnitHandler
-     */
-    private $timeUnitHandler;
-
-    /**
-     * @var DumpHandler
-     */
-    private $dumpHandler;
-
-    /**
-     * @var Registry
-     */
-    private $storage;
-
-    public function __construct(RunnerHandler $runnerHandler, ReportHandler $reportHandler, TimeUnitHandler $timeUnitHandler, DumpHandler $dumpHandler, Registry $storage
+    public function __construct(
+        private readonly RunnerHandler $runnerHandler,
+        private readonly ReportHandler $reportHandler,
+        private readonly SuiteCollectionHandler $suiteCollectionHandler,
+        private readonly TimeUnitHandler $timeUnitHandler,
+        private readonly DumpHandler $dumpHandler,
+        private readonly Registry $storage
     ) {
         parent::__construct();
-        $this->runnerHandler = $runnerHandler;
-        $this->reportHandler = $reportHandler;
-        $this->timeUnitHandler = $timeUnitHandler;
-        $this->dumpHandler = $dumpHandler;
-        $this->storage = $storage;
     }
 
-    public function configure()
+    public function configure(): void
     {
         RunnerHandler::configure($this);
         ReportHandler::configure($this);
+        SuiteCollectionHandler::configure($this);
         TimeUnitHandler::configure($this);
         DumpHandler::configure($this);
 
         $this->setName('run');
         $this->setDescription('Run benchmarks');
-        $this->setHelp(<<<'EOT'
+        $this->setHelp(
+            <<<'EOT'
 Run benchmark files at given <comment>path</comment>
 
     $ %command.full_name% /path/to/bench
@@ -83,41 +72,61 @@ Run benchmark files at given <comment>path</comment>
 All bench marks under the given path will be executed recursively.
 EOT
         );
-        $this->addOption('iterations', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Override number of iteratios to run in (all) benchmarks');
-        $this->addOption('warmup', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Override number of warmup revolutions on all benchmarks');
-        $this->addOption('retry-threshold', 'r', InputOption::VALUE_REQUIRED, 'Set target allowable deviation', null);
-        $this->addOption('sleep', null, InputOption::VALUE_REQUIRED, 'Number of microseconds to sleep between iterations');
-        $this->addOption('context', null, InputOption::VALUE_REQUIRED, 'DEPRECATED! Use tag instead.');
-        $this->addOption('tag', null, InputOption::VALUE_REQUIRED, 'Tag to apply to stored result (useful when comparing reports)');
-        $this->addOption('store', null, InputOption::VALUE_NONE, 'Persist the results');
-        $this->addOption('tolerate-failure', null, InputOption::VALUE_NONE, 'Return 0 exit code even when failures occur');
+        $this->addOption(self::OPT_ITERATIONS, null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Override number of iteratios to run in (all) benchmarks');
+        $this->addOption(self::OPT_WARMUP, null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Override number of warmup revolutions on all benchmarks');
+        $this->addOption(self::OPT_RETRY_THRESHOLD, 'r', InputOption::VALUE_REQUIRED, 'Set target allowable deviation', null);
+        $this->addOption(self::OPT_SLEEP, null, InputOption::VALUE_REQUIRED, 'Number of microseconds to sleep between iterations');
+        $this->addOption(self::OPT_TAG, null, InputOption::VALUE_REQUIRED, 'Tag to apply to stored result (useful when comparing reports)');
+        $this->addOption(self::OPT_STORE, null, InputOption::VALUE_NONE, 'Persist the results');
+        $this->addOption(self::OPT_TOLERATE_FAILURE, null, InputOption::VALUE_NONE, 'Return 0 exit code even when failures occur');
     }
 
-    public function execute(InputInterface $input, OutputInterface $output)
+    public function execute(InputInterface $input, OutputInterface $output): int
     {
         $this->timeUnitHandler->timeUnitFromInput($input);
         $this->reportHandler->validateReportsFromInput($input);
 
-        $retryThreshold = $input->getOption('retry-threshold');
-        $sleep = $input->getOption('sleep');
+        /** @var string|null $retryThreshold */
+        $retryThreshold = $input->getOption(self::OPT_RETRY_THRESHOLD);
+
+        /** @var string|null $sleep */
+        $sleep = $input->getOption(self::OPT_SLEEP);
+
+        /** @var list<string> $iterations */
+        $iterations = $input->getOption(self::OPT_ITERATIONS);
+        $iterations = array_map('intval', $iterations);
+
+        /** @var list<string> $warmup */
+        $warmup = $input->getOption(self::OPT_WARMUP);
+        $warmup = array_map('intval', $warmup);
+
+        /** @var string|null $tag */
+        $tag = $input->getOption(self::OPT_TAG);
+
+        /** @var bool $store */
+        $store = $input->getOption(self::OPT_STORE);
+
+        /** @var bool $tolerateFailure */
+        $tolerateFailure = $input->getOption(self::OPT_TOLERATE_FAILURE);
+
+        $baselines = $this->resolveBaselines($input);
 
         $config = RunnerConfig::create()
-            ->withTag($this->resolveTag($input))
+            ->withTag((string)$tag)
             ->withRetryThreshold($retryThreshold !== null ? (float) $retryThreshold : null)
             ->withSleep($sleep !== null ? (int) $sleep : null)
-            ->withIterations($input->getOption('iterations'))
-            ->withWarmup($input->getOption('warmup'))
-            ->withAssertions($input->getOption('assert'));
+            ->withIterations($iterations)
+            ->withWarmup($warmup)
+            ->withBaselines($baselines);
 
         $suite = $this->runnerHandler->runFromInput($input, $output, $config);
 
         $collection = new SuiteCollection([$suite]);
         $this->dumpHandler->dumpFromInput($input, $output, $collection);
 
-        if (true === $input->getOption('store')) {
+        if (true === $store || $tag) {
             $output->write('Storing results ... ');
 
-            /** @var DriverInterface $driver */
             $driver = $this->storage->getService();
 
             $message = $driver->store($collection);
@@ -130,34 +139,25 @@ EOT
             }
         }
 
-        $this->reportHandler->reportsFromInput($input, $output, $collection);
-
         if ($suite->getErrorStacks()) {
             return self::EXIT_CODE_ERROR;
         }
 
-        if (false === $input->getOption('tolerate-failure') && $suite->getFailures()) {
+        $this->reportHandler->reportsFromInput($input, $collection->mergeCollection($this->resolveBaselines($input)));
+
+        if (false === $tolerateFailure && $suite->getFailures()) {
             return self::EXIT_CODE_FAILURE;
         }
 
         return 0;
     }
 
-    private function resolveTag(InputInterface $input)
+    private function resolveBaselines(InputInterface $input): SuiteCollection
     {
-        $tag = $input->getOption('tag');
-        $context = $input->getOption('context');
-
-        if ($tag && $context) {
-            throw new RuntimeException(
-                'Options `tag` and `context` are synonyms (and context is deprecated), you cannot use them both'
-            );
+        if ($input->getOption('ref') || $input->getOption('file')) {
+            return $this->suiteCollectionHandler->suiteCollectionFromInput($input);
         }
 
-        if ($context) {
-            return $context;
-        }
-
-        return $tag;
+        return new SuiteCollection();
     }
 }

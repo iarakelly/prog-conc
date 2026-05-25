@@ -11,18 +11,9 @@
  */
 
 return [
-    'memory_centric_microtime' => [
-        'executor' => 'memory_centric_microtime',
-    ],
-    'microtime' => [
-        'executor' => 'microtime',
-    ],
-    'debug' => [
-        'executor' => 'debug',
-    ],
     'debug_macro' => [
         'executor' => 'debug',
-        'times' => [1000000, 200000],
+        'times' => [1_000_000, 200000],
         'spread' => [50000, -12345, 1000],
     ],
 ];

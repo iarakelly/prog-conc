@@ -12,9 +12,13 @@
 
 namespace PhpBench\Benchmark;
 
+use InvalidArgumentException;
+use Generator;
 use PhpBench\Benchmark\Metadata\BenchmarkMetadata;
 use PhpBench\Benchmark\Metadata\MetadataFactory;
-use PhpBench\PhpBench;
+use Symfony\Component\Filesystem\Path;
+use Psr\Log\LoggerInterface;
+use SplFileInfo;
 use Symfony\Component\Finder\Finder;
 
 /**
@@ -23,49 +27,24 @@ use Symfony\Component\Finder\Finder;
  */
 class BenchmarkFinder
 {
-    /**
-     * @var MetadataFactory
-     */
-    private $factory;
-
-    public function __construct(MetadataFactory $factory)
-    {
-        $this->factory = $factory;
+    public function __construct(
+        private readonly MetadataFactory $factory,
+        private readonly string          $cwd,
+        private readonly LoggerInterface $logger,
+        private readonly ?string         $benchPattern = null
+    ) {
     }
 
     /**
-     * Build the BenchmarkMetadata collection.
+     * @param array<string> $paths
+     * @param array<string> $subjectFilter
+     * @param array<string> $groupFilter
      *
-     * @param string $path
-     * @param array $subjectFilter
-     * @param array $groupFilter
+     * @return Generator<BenchmarkMetadata>
      */
-    public function findBenchmarks($path, array $subjectFilter = [], array $groupFilter = [])
+    public function findBenchmarks(array $paths, array $subjectFilter = [], array $groupFilter = []): Generator
     {
-        $finder = new Finder();
-        $path = PhpBench::normalizePath($path);
-
-        if (!file_exists($path)) {
-            throw new \InvalidArgumentException(sprintf(
-                'File or directory "%s" does not exist (cwd: %s)',
-                $path,
-                getcwd()
-            ));
-        }
-
-        if (is_dir($path)) {
-            $finder->in($path)
-                ->name('*.php');
-        } else {
-            // the path is already a file, just restrict the finder to that.
-            $finder->in(dirname($path))
-                ->depth(0)
-                ->name(basename($path));
-        }
-
-        $benchmarks = [];
-
-        foreach ($finder as $file) {
+        foreach ($this->findFiles($paths) as $file) {
             if (!is_file($file)) {
                 continue;
             }
@@ -88,9 +67,62 @@ class BenchmarkFinder
                 continue;
             }
 
-            $benchmarks[] = $benchmark;
+            yield $benchmark;
+        }
+    }
+
+    /**
+     * @param string[] $paths
+     *
+     * @return Generator<SplFileInfo>
+     */
+    private function findFiles(array $paths): Generator
+    {
+        $finder = new Finder();
+        $search = false;
+
+        foreach ($paths as $path) {
+            $path = Path::makeAbsolute($path, $this->cwd);
+
+            if (!file_exists($path)) {
+                throw new InvalidArgumentException(sprintf(
+                    'File or directory "%s" does not exist (cwd: %s)',
+                    $path,
+                    $this->cwd
+                ));
+            }
+
+            if (is_dir($path)) {
+                $search = true;
+                $finder->in($path)->name($this->benchPattern ?? '*.php');
+
+                continue;
+            }
+
+            if (is_file($path)) {
+                yield new SplFileInfo($path);
+
+                continue;
+            }
         }
 
-        return $benchmarks;
+        if ($search === false) {
+            return;
+        }
+
+        foreach ($finder as $file) {
+            assert($file instanceof SplFileInfo);
+
+            if ($this->benchPattern === null && !str_ends_with($file->getFilename(), 'Bench.php')) {
+                $this->logger->warning(sprintf(
+                    'File "%s" has been identified as a benchmark file but it does not end with ' .
+                    '`Bench.php`. This behavior is incorrect and will be fixed in a future version. ' .
+                    'Set `runner.file_pattern` to `*Bench.php` in `phpbench.json` to avoid this.',
+                    $file->getFilename()
+                ));
+            }
+
+            yield $file;
+        }
     }
 }

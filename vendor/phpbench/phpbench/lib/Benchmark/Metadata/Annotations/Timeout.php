@@ -14,21 +14,27 @@ namespace PhpBench\Benchmark\Metadata\Annotations;
 
 /**
  * @Annotation
+ *
  * @Taget({"METHOD", "CLASS"})
+ *
  * @Attributes({
+ *
  *    @Attribute("value", required = true, type="float")
  * })
  */
 class Timeout
 {
-    private $timeout;
+    private readonly float $timeout;
 
+    /**
+     * @param array{value: float} $params
+     */
     public function __construct($params)
     {
         $this->timeout = (float) $params['value'];
     }
 
-    public function getTimeout()
+    public function getTimeout(): float
     {
         return $this->timeout;
     }

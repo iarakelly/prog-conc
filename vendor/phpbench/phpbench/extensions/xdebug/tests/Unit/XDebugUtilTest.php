@@ -12,13 +12,11 @@
 
 namespace PhpBench\Extensions\XDebug\Tests\Unit;
 
+use DTL\Invoke\Invoke;
+use PhpBench\Executor\ExecutionContext;
 use PhpBench\Extensions\XDebug\XDebugUtil;
-use PhpBench\Model\Benchmark;
 use PhpBench\Model\Iteration;
-use PhpBench\Model\ParameterSet;
-use PhpBench\Model\Subject;
-use PhpBench\Model\Variant;
-use PHPUnit\Framework\TestCase;
+use PhpBench\Tests\TestCase;
 
 class XDebugUtilTest extends TestCase
 {
@@ -27,50 +25,64 @@ class XDebugUtilTest extends TestCase
     private $benchmark;
     private $parameters;
 
-    protected function setUp(): void
-    {
-        $this->iteration = $this->prophesize(Iteration::class);
-        $this->subject = $this->prophesize(Subject::class);
-        $this->benchmark = $this->prophesize(Benchmark::class);
-        $this->parameters = $this->prophesize(ParameterSet::class);
-        $this->variant = $this->prophesize(Variant::class);
-    }
-
     /**
      * It should generate a filename for an iteration.
      *
      * @dataProvider provideGenerate
      */
-    public function testGenerate($class, $subject, $expected)
+    public function testGenerate($class, $subject, $expected): void
     {
-        $this->benchmark->getClass()->willReturn($class);
-        $this->subject->getName()->willReturn($subject);
+        $params = [
+            'classPath' => '/foobar',
+            'parameterSetName' => '7',
+            'parameters' => ['asd'],
+            'className' => $class,
+            'methodName' => $subject,
+        ];
+        $xdebugUtil = new XDebugUtil('3.1.2', false);
 
-        $this->parameters->getIndex()->willReturn(7);
-        $this->variant->getParameterSet()->willReturn($this->parameters->reveal());
-        $this->subject->getBenchmark()->willReturn($this->benchmark->reveal());
-        $this->variant->getSubject()->willReturn($this->subject->reveal());
-        $this->iteration->getVariant()->willReturn($this->variant->reveal());
-        $result = XDebugUtil::filenameFromIteration($this->iteration->reveal());
+        $result = $xdebugUtil->filenameFromContext(Invoke::new(ExecutionContext::class, $params));
         $this->assertEquals(
             $expected,
             $result
         );
     }
 
-    public function provideGenerate()
+    /**
+     *
+     * @dataProvider provideXdebugVersion
+     */
+    public function testCacheGrindExtension($xdebugVersion, $useCompression, $expectedExtension): void
+    {
+        $xdebugUtil = new XDebugUtil($xdebugVersion, $useCompression);
+
+        $cacheGrindExtension = $xdebugUtil->getCachegrindExtensionOfGeneratedFile();
+
+        $this->assertEquals($expectedExtension, $cacheGrindExtension);
+    }
+
+    public static function provideGenerate()
     {
         return [
             [
                 'Benchmark',
                 'Subject',
-                'Benchmark::Subject.P7',
+                '2214b023e25587e253082262814e6c37'
             ],
             [
                 'Benchmark\\Foo',
                 'Subject\\//asd',
-                'Benchmark_Foo::Subject___asd.P7',
+                '25133125bf4eca7a08502711d2c8403d'
             ],
+        ];
+    }
+
+    public static function provideXdebugVersion(): array
+    {
+        return [
+            ['2.8.1', false, '.cachegrind'],
+            ['3.1.2', false, '.cachegrind'],
+            ['3.1.2', true, '.cachegrind.gz']
         ];
     }
 }

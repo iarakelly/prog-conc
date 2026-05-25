@@ -12,18 +12,21 @@
 
 namespace PhpBench\Benchmark\Baseline;
 
+use RuntimeException;
+
 /**
  * Class providing some static methods which are used
  * to provide base line measurements.
  *
- * @see \PhpBench\Benchmark\BaselineManager
  */
 class Baselines
 {
     /**
      * Do nothing.
+     *
+     * @param int $revs
      */
-    public static function nothing($revs)
+    public static function nothing($revs): void
     {
         for ($i = 0; $i < $revs; $i++) {
         }
@@ -31,10 +34,13 @@ class Baselines
 
     /**
      * Calculate an md5 hash.
+     *
+     * @param int $revs
      */
-    public static function md5($revs)
+    public static function md5($revs): void
     {
         for ($i = 0; $i < $revs; $i++) {
+            /** @phpstan-ignore-next-line */
             md5('lorem ipusm');
         }
     }
@@ -42,11 +48,21 @@ class Baselines
     /**
      * Open a file, write a string to it $revs times, then
      * read each line back.
+     *
+     * @param int $revs
      */
-    public static function fwriteFread($revs)
+    public static function fwriteFread($revs): void
     {
         $tempName = tempnam(sys_get_temp_dir(), 'phpbench_baseline');
+
+        if ($tempName === false) {
+            throw new RuntimeException('Failed to create a temp file');
+        }
         $handle = fopen($tempName, 'w');
+
+        if ($handle === false) {
+            throw new RuntimeException(sprintf('Temp file %s is not writeable', $tempName));
+        }
 
         for ($i = 0; $i < $revs; $i++) {
             fwrite($handle, 'lorum ipsum');
@@ -55,6 +71,10 @@ class Baselines
         fclose($handle);
 
         $handle = fopen($tempName, 'r');
+
+        if ($handle === false) {
+            throw new RuntimeException(sprintf('Temp file %s is not readable', $tempName));
+        }
 
         $line = true;
 

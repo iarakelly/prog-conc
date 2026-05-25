@@ -13,41 +13,64 @@
 namespace PhpBench\Benchmark\Metadata;
 
 use Doctrine\Common\Annotations\AnnotationException;
-use Doctrine\Common\Annotations\AnnotationRegistry;
 use Doctrine\Common\Annotations\DocParser;
 use Doctrine\Common\Annotations\TokenParser;
-use PhpBench\Benchmark\Remote\ReflectionClass;
-use PhpBench\Benchmark\Remote\ReflectionMethod;
+use PhpBench\Benchmark\Metadata\Annotations\AfterClassMethods;
+use PhpBench\Benchmark\Metadata\Annotations\AfterMethods;
+use PhpBench\Benchmark\Metadata\Annotations\Assert;
+use PhpBench\Benchmark\Metadata\Annotations\BeforeClassMethods;
+use PhpBench\Benchmark\Metadata\Annotations\BeforeMethods;
+use PhpBench\Benchmark\Metadata\Annotations\Executor;
+use PhpBench\Benchmark\Metadata\Annotations\Format;
+use PhpBench\Benchmark\Metadata\Annotations\Groups;
+use PhpBench\Benchmark\Metadata\Annotations\Iterations;
+use PhpBench\Benchmark\Metadata\Annotations\OutputMode;
+use PhpBench\Benchmark\Metadata\Annotations\OutputTimeUnit;
+use PhpBench\Benchmark\Metadata\Annotations\ParamProviders;
+use PhpBench\Benchmark\Metadata\Annotations\RetryThreshold;
+use PhpBench\Benchmark\Metadata\Annotations\Revs;
+use PhpBench\Benchmark\Metadata\Annotations\Skip;
+use PhpBench\Benchmark\Metadata\Annotations\Sleep;
+use PhpBench\Benchmark\Metadata\Annotations\Subject;
+use PhpBench\Benchmark\Metadata\Annotations\Timeout;
+use PhpBench\Benchmark\Metadata\Annotations\Warmup;
+use PhpBench\Benchmark\Metadata\Exception\CouldNotLoadMetadataException;
+use PhpBench\Reflection\ReflectionClass;
+use PhpBench\Reflection\ReflectionMethod;
 
 /**
  * Annotation reader.
  */
 class AnnotationReader
 {
-    private $useImports = [];
-    private $importUse = false;
+    /** @var array<class-string, array<string, class-string>> */
+    private array $useImports = [];
 
-    private static $phpBenchImports = [
-        'BeforeMethods' => Annotations\BeforeMethods::class,
-        'BeforeClassMethods' => Annotations\BeforeClassMethods::class,
-        'AfterMethods' => Annotations\AfterMethods::class,
-        'AfterClassMethods' => Annotations\AfterClassMethods::class,
-        'ParamProviders' => Annotations\ParamProviders::class,
-        'Groups' => Annotations\Groups::class,
-        'Iterations' => Annotations\Iterations::class,
-        'Revs' => Annotations\Revs::class,
-        'Skip' => Annotations\Skip::class,
-        'Sleep' => Annotations\Sleep::class,
-        'OutputTimeUnit' => Annotations\OutputTimeUnit::class,
-        'OutputMode' => Annotations\OutputMode::class,
-        'Warmup' => Annotations\Warmup::class,
-        'Subject' => Annotations\Subject::class,
-        'Assert' => Annotations\Assert::class,
-        'Executor' => Annotations\Executor::class,
-        'Timeout' => Annotations\Timeout::class,
+    /** @var array<string, class-string> */
+    private static array $phpBenchImports = [
+        'BeforeMethods' => BeforeMethods::class,
+        'BeforeClassMethods' => BeforeClassMethods::class,
+        'AfterMethods' => AfterMethods::class,
+        'AfterClassMethods' => AfterClassMethods::class,
+        'ParamProviders' => ParamProviders::class,
+        'Groups' => Groups::class,
+        'Iterations' => Iterations::class,
+        'Revs' => Revs::class,
+        'Skip' => Skip::class,
+        'Sleep' => Sleep::class,
+        'OutputTimeUnit' => OutputTimeUnit::class,
+        'OutputMode' => OutputMode::class,
+        'Warmup' => Warmup::class,
+        'Subject' => Subject::class,
+        'Assert' => Assert::class,
+        'Executor' => Executor::class,
+        'Timeout' => Timeout::class,
+        'Format' => Format::class,
+        'RetryThreshold' => RetryThreshold::class,
     ];
 
-    private static $globalIgnoredNames = [
+    /** @var array<string, bool> */
+    private static array $globalIgnoredNames = [
         // Annotation tags
         'Annotation' => true, 'Attribute' => true, 'Attributes' => true,
         /* Can we enable this? 'Enum' => true, */
@@ -90,6 +113,13 @@ class AnnotationReader
         'after' => true,
         'afterClass' => true,
         'backupGlobals' => true,
+        'template' => true,
+        'template-covariant' => true,
+        'template-contravariant' => true,
+        'use' => true,
+        'implements' => true,
+        'extends' => true,
+        'param-out' => true,
         'backupStaticAttributes' => true,
         'before' => true,
         'beforeClass' => true,
@@ -125,55 +155,53 @@ class AnnotationReader
         'startuml' => true, 'enduml' => true,
     ];
 
-    /**
-     * @var DocParser
-     */
-    private $docParser;
+    private readonly DocParser $docParser;
 
     /**
      * Set import use to true in order to use imported annotations, otherwise
      * import the PHPBench annotations directly.
      *
-     * @param bool $importUse
      */
-    public function __construct($importUse = false)
+    public function __construct(private readonly bool $importUse = false)
     {
         $this->docParser = new DocParser();
         $this->docParser->setIgnoredAnnotationNames(self::$globalIgnoredNames);
-        $this->importUse = $importUse;
-
-        AnnotationRegistry::registerLoader(function ($classFqn) {
-            if (class_exists($classFqn)) {
-                return true;
-            }
-        });
     }
 
     /**
      * Return annotations for the given class.
+     *
+     * @return list<object>
      */
-    public function getClassAnnotations(ReflectionClass $class)
+    public function getClassAnnotations(ReflectionClass $class): array
     {
         $this->collectImports($class);
 
         return $this->parse($class->comment, sprintf('benchmark: %s', $class->class));
     }
 
-    public function getMethodAnnotations(ReflectionMethod $method)
+    /**
+     * @return list<object>
+     */
+    public function getMethodAnnotations(ReflectionMethod $method): array
     {
         $this->collectImports($method->reflectionClass);
 
         return $this->parse($method->comment, sprintf('subject %s::%s', $method->class, $method->name));
     }
 
-    private function collectImports(ReflectionClass $class)
+    private function collectImports(ReflectionClass $class): void
     {
         $imports = $this->importUse === true ? $this->getUseImports($class) : $this->getPhpBenchImports();
         $this->docParser->setImports($imports);
     }
 
-    private function getPhpBenchImports()
+    /**
+     * @return array<string, class-string>
+     */
+    private function getPhpBenchImports(): array
     {
+        /** @var array<string, class-string> $phpBenchImports */
         static $phpBenchImports;
 
         if ($phpBenchImports) {
@@ -187,16 +215,20 @@ class AnnotationReader
         return $phpBenchImports;
     }
 
-    private function getUseImports(ReflectionClass $class)
+    /**
+     * @return array<string, class-string>
+     */
+    private function getUseImports(ReflectionClass $class): array
     {
-        if (isset($this->useImports[$class->class])) {
-            return $this->useImports[$class->class];
+        if (isset($this->useImports[$class->getClass()])) {
+            return $this->useImports[$class->getClass()];
         }
 
         $content = file_get_contents($class->path);
         $tokenizer = new TokenParser('<?php ' . $content);
-        $useImports = $tokenizer->parseUseStatements($class->namespace);
-        $this->useImports[$class->class] = $useImports;
+        /** @var array<string, class-string> $useImports */
+        $useImports = $tokenizer->parseUseStatements($class->namespace ?? '');
+        $this->useImports[$class->getClass()] = $useImports;
 
         return $useImports;
     }
@@ -205,18 +237,20 @@ class AnnotationReader
      * Delegates to the doctrine DocParser but catches annotation not found errors and throws
      * something useful.
      *
-     * @see \Doctrine\Common\Annotations\DocParser
+     * @see DocParser
+     *
+     * @return list<object>
      */
-    private function parse($input, $context = '')
+    private function parse(?string $input, string $context = ''): array
     {
         try {
-            $annotations = $this->docParser->parse($input, $context);
+            $annotations = @$this->docParser->parse($input ?? '', $context);
         } catch (AnnotationException $e) {
             if (!preg_match('/The annotation "(.*)" .* was never imported/', $e->getMessage(), $matches)) {
-                throw $e;
+                throw new CouldNotLoadMetadataException($e->getMessage(), 0, $e);
             }
 
-            throw new \InvalidArgumentException(sprintf(
+            throw new CouldNotLoadMetadataException(sprintf(
                 'Unrecognized annotation %s, valid PHPBench annotations: @%s',
                 $matches[1],
                 implode(', @', array_keys(self::$phpBenchImports))

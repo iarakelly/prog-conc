@@ -12,8 +12,10 @@
 
 namespace PhpBench\Serializer;
 
-use PhpBench\Assertion\AssertionFailure;
-use PhpBench\Assertion\AssertionWarning;
+use DateTime;
+use RuntimeException;
+use DOMElement;
+use PhpBench\Assertion\AssertionResult;
 use PhpBench\Dom\Document;
 use PhpBench\Dom\Element;
 use PhpBench\Environment\Information;
@@ -28,6 +30,8 @@ use PhpBench\Model\Variant;
 use PhpBench\PhpBench;
 use PhpBench\Registry\Config;
 
+use function base64_decode;
+
 /**
  * Encodes the Suite object graph into an XML document.
  */
@@ -36,16 +40,13 @@ class XmlDecoder
     /**
      * Decode a PHPBench XML document into a SuiteCollection.
      *
-     * @param Document $document
-     *
-     * @return SuiteCollection
      */
-    public function decode(Document $document)
+    public function decode(Document $document): SuiteCollection
     {
         $suites = [];
 
+        /** @var Element $suiteEl */
         foreach ($document->query('//suite') as $suiteEl) {
-            /** @phpstan-ignore-next-line */
             $suites[] = $this->processSuite($suiteEl);
         }
 
@@ -56,10 +57,8 @@ class XmlDecoder
      * Return a SuiteCollection from a number of PHPBench xml files.
      *
      * @param string[] $files
-     *
-     * @return SuiteCollection
      */
-    public function decodeFiles(array $files)
+    public function decodeFiles(array $files): SuiteCollection
     {
         // combine into one document.
         //
@@ -79,11 +78,11 @@ class XmlDecoder
         return $this->decode($suiteDocument);
     }
 
-    private function processSuite(Element $suiteEl)
+    private function processSuite(Element $suiteEl): Suite
     {
         $suite = new Suite(
             $suiteEl->getAttribute('tag'),
-            new \DateTime($suiteEl->getAttribute('date')),
+            new DateTime($suiteEl->getAttribute('date')),
             $suiteEl->getAttribute('config-path'),
             [],
             [],
@@ -93,11 +92,21 @@ class XmlDecoder
         $informations = [];
 
         foreach ($suiteEl->query('./env/*') as $envEl) {
+            assert($envEl instanceof Element);
             $name = $envEl->nodeName;
             $info = [];
 
-            foreach ($envEl->attributes as $iName => $valueAttr) {
-                $info[$iName] = $valueAttr->nodeValue;
+            if ($envEl->childNodes->count()) {
+                foreach ($envEl->childNodes as $value) {
+                    if (!$value instanceof Element) {
+                        continue;
+                    }
+                    $info[$value->getAttribute('name')] = $this->resolveEnvType($value->getAttribute('type'), $value->nodeValue);
+                }
+            } else { // legacy format
+                foreach ($envEl->attributes as $iName => $valueAttr) {
+                    $info[$iName] = $valueAttr->nodeValue;
+                }
             }
 
             $informations[$name] = new Information($name, $info);
@@ -106,10 +115,11 @@ class XmlDecoder
         $resultClasses = [];
 
         foreach ($suiteEl->query('//result') as $resultEl) {
+            assert($resultEl instanceof DOMElement);
             $class = $resultEl->getAttribute('class');
 
             if (!class_exists($class)) {
-                throw new \RuntimeException(sprintf(
+                throw new RuntimeException(sprintf(
                     'XML file defines a non-existing result class "%s" - maybe you are missing an extension?',
                     $class
                 ));
@@ -121,37 +131,38 @@ class XmlDecoder
         $suite->setEnvInformations($informations);
 
         foreach ($suiteEl->query('./benchmark') as $benchmarkEl) {
+            assert($benchmarkEl instanceof Element);
             $benchmark = $suite->createBenchmark(
                 $benchmarkEl->getAttribute('class')
             );
 
-            /** @phpstan-ignore-next-line */
             $this->processBenchmark($benchmark, $benchmarkEl, $resultClasses);
         }
 
         return $suite;
     }
 
-    private function processBenchmark(Benchmark $benchmark, Element $benchmarkEl, array $resultClasses)
+    private function processBenchmark(Benchmark $benchmark, Element $benchmarkEl, array $resultClasses): void
     {
+        /** @var Element $subjectEl */
         foreach ($benchmarkEl->query('./subject') as $subjectEl) {
             $subject = $benchmark->createSubject($subjectEl->getAttribute('name'));
-            /** @phpstan-ignore-next-line */
             $this->processSubject($subject, $subjectEl, $resultClasses);
         }
     }
 
-    private function processSubject(Subject $subject, Element $subjectEl, array $resultClasses)
+    private function processSubject(Subject $subject, Element $subjectEl, array $resultClasses): void
     {
         $groups = [];
 
+        /** @var Element $groupEl */
         foreach ($subjectEl->query('./group') as $groupEl) {
             $groups[] = $groupEl->getAttribute('name');
         }
         $subject->setGroups($groups);
 
+        /** @var Element $executorEl */
         foreach ($subjectEl->query('./executor') as $executorEl) {
-            /** @phpstan-ignore-next-line */
             $subject->setExecutor(ResolvedExecutor::fromNameAndConfig($executorEl->getAttribute('name'), new Config('asd', $this->getParameters($executorEl))));
 
             break;
@@ -159,35 +170,36 @@ class XmlDecoder
 
         // TODO: These attributes should be on the subject, see
         // https://github.com/phpbench/phpbench/issues/307
+        /** @var Element $variantEl */
         foreach ($subjectEl->query('./variant') as $variantEl) {
-            $subject->setSleep($variantEl->getAttribute('sleep'));
+            $subject->setSleep((int)$variantEl->getAttribute('sleep'));
             $subject->setOutputTimeUnit($variantEl->getAttribute('output-time-unit'));
-            $subject->setOutputTimePrecision($variantEl->getAttribute('output-time-precision'));
+            $subject->setOutputTimePrecision((int)$variantEl->getAttribute('output-time-precision'));
             $subject->setOutputMode($variantEl->getAttribute('output-mode'));
-            $subject->setRetryThreshold($variantEl->getAttribute('retry-threshold'));
+            $subject->setRetryThreshold((float)$variantEl->getAttribute('retry-threshold'));
 
             break;
         }
 
+        /** @var Element $variantEl */
         foreach ($subjectEl->query('./variant') as $index => $variantEl) {
-            $parameterSet = new ParameterSet(0, []);
+            $parameterSet = ParameterSet::fromUnserializedValues('0', []);
 
+            /** @var Element $parameterSetEl */
             foreach ($variantEl->query('./parameter-set') as $parameterSetEl) {
                 $name = $parameterSetEl->getAttribute('name');
                 $parameters = $this->getParameters($parameterSetEl);
-                $parameterSet = new ParameterSet($name, $parameters);
+                $parameterSet = ParameterSet::fromUnserializedValues($name, $parameters);
 
                 break;
             }
-            /** @phpstan-ignore-next-line */
             $stats = $this->getComputedStats($variantEl);
-            $variant = $subject->createVariant($parameterSet, $variantEl->getAttribute('revs'), $variantEl->getAttribute('warmup'), $stats);
-            /** @phpstan-ignore-next-line */
+            $variant = $subject->createVariant($parameterSet, (int)$variantEl->getAttribute('revs'), (int)$variantEl->getAttribute('warmup'), $stats);
             $this->processVariant($variant, $variantEl, $resultClasses);
         }
     }
 
-    private function getComputedStats(Element $element)
+    private function getComputedStats(Element $element): array
     {
         $stats = [];
 
@@ -200,16 +212,28 @@ class XmlDecoder
         return $stats;
     }
 
-    private function getParameters(Element $element)
+    private function getParameters(Element $element): array
     {
         $parameters = [];
 
+        /** @var Element $parameterEl */
         foreach ($element->query('./parameter') as $parameterEl) {
             $name = $parameterEl->getAttribute('name');
 
-            if ($parameterEl->getAttribute('type') === 'collection') {
-                /** @phpstan-ignore-next-line */
+            if ($parameterEl->getAttribute('type') === XmlEncoder::PARAM_TYPE_COLLECTION) {
                 $parameters[$name] = $this->getParameters($parameterEl);
+
+                continue;
+            }
+
+            if ($parameterEl->getAttribute('type') === XmlEncoder::PARAM_TYPE_BINARY) {
+                $parameters[$name] = base64_decode($parameterEl->nodeValue);
+
+                continue;
+            }
+
+            if ($parameterEl->getAttribute('type') === XmlEncoder::PARAM_TYPE_SERIALIZED) {
+                $parameters[$name] = unserialize(base64_decode($parameterEl->nodeValue));
 
                 continue;
             }
@@ -220,26 +244,36 @@ class XmlDecoder
                 continue;
             }
 
-            $parameters[$name] = $parameterEl->getAttribute('value');
+            $parameters[$name] = (function (DOMElement $element) {
+                $value = $element->getAttribute('value');
+                $type = $element->getAttribute('type');
+
+                return match ($type) {
+                    'integer' => intval($value),
+                    'double' => floatval($value),
+                    default => $value,
+                };
+            })($parameterEl);
         }
 
         return $parameters;
     }
 
-    private function processVariant(Variant $variant, Element $variantEl, array $resultClasses)
+    private function processVariant(Variant $variant, Element $variantEl, array $resultClasses): void
     {
         $errorEls = $variantEl->query('.//error');
 
         if ($errorEls->length) {
             $errors = [];
 
+            /** @var Element $errorEl */
             foreach ($errorEls as $errorEl) {
                 $error = new Error(
                     $errorEl->nodeValue,
                     $errorEl->getAttribute('exception-class'),
-                    $errorEl->getAttribute('code'),
+                    (int)$errorEl->getAttribute('code'),
                     $errorEl->getAttribute('file'),
-                    $errorEl->getAttribute('line'),
+                    (int)$errorEl->getAttribute('line'),
                     '' // we don't serialize the trace..
                 );
                 $errors[] = $error;
@@ -249,23 +283,13 @@ class XmlDecoder
             return;
         }
 
-        $warningEls = $variantEl->query('.//warning');
-
-        if ($warningEls->length) {
-            $warnings = [];
-
-            foreach ($warningEls as $warningEl) {
-                $variant->addWarning(new AssertionWarning($warningEl->nodeValue));
-            }
-        }
-
         $failureEls = $variantEl->query('.//failure');
 
         if ($failureEls->length) {
             $failures = [];
 
             foreach ($failureEls as $failureEl) {
-                $variant->addFailure(new AssertionFailure($failureEl->nodeValue));
+                $variant->addAssertionResult(AssertionResult::fail($failureEl->nodeValue));
             }
         }
 
@@ -275,23 +299,24 @@ class XmlDecoder
             foreach ($iterationEl->attributes as $attributeEl) {
                 $name = $attributeEl->name;
 
-                if (false === strpos($name, '-')) {
-                    throw new \RuntimeException(sprintf(
+                if (!str_contains((string) $name, '-')) {
+                    throw new RuntimeException(sprintf(
                         'Expected attribute name to have a result key prefix, got "%s".',
                         $name
                     ));
                 }
 
-                $prefix = substr($name, 0, strpos($name, '-'));
+                $prefix = substr((string) $name, 0, strpos((string) $name, '-'));
 
                 if (!isset($resultClasses[$prefix])) {
-                    throw new \RuntimeException(sprintf(
+                    throw new RuntimeException(sprintf(
                         'No result class was provided with key "%s" for attribute "%s"',
-                        $prefix, $name
+                        $prefix,
+                        $name
                     ));
                 }
 
-                $suffix = substr($name, strpos($name, '-') + 1);
+                $suffix = substr((string) $name, strpos((string) $name, '-') + 1);
                 $results[$prefix][str_replace('-', '_', $suffix)] = $attributeEl->value;
             }
 
@@ -307,5 +332,17 @@ class XmlDecoder
 
         // TODO: Serialize statistics ..
         $variant->computeStats();
+    }
+
+    /**
+     * @return mixed
+     */
+    private function resolveEnvType(string $type, mixed $value)
+    {
+        if ($type === 'boolean') {
+            return (bool)$value;
+        }
+
+        return $value;
     }
 }

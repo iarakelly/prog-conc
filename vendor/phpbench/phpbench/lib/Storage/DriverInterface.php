@@ -12,7 +12,7 @@
 
 namespace PhpBench\Storage;
 
-use PhpBench\Expression\Constraint\Constraint;
+use InvalidArgumentException;
 use PhpBench\Model\SuiteCollection;
 
 /**
@@ -26,48 +26,30 @@ interface DriverInterface
      * Optionally return a message which should be displayed
      * by the CLI interface after successful storage.
      *
-     * @param SuiteCollection $collection
      *
-     * @return string|null
      */
-    public function store(SuiteCollection $collection);
-
-    /**
-     * Query the storage and return a SuiteCollection.
-     *
-     * @param Constraint $constraint
-     *
-     * @return SuiteCollection
-     */
-    public function query(Constraint $constraint);
+    public function store(SuiteCollection $collection): ?string;
 
     /**
      * Return the suite collection with the given run ID.
      * If no suite is found an exception will be thrown.
      *
-     * @param int $runId
-     *
-     * @throws \InvalidArgumentException
-     *
-     * @return SuiteCollection
+     * @throws InvalidArgumentException
      */
-    public function fetch($runId);
+    public function fetch(string $runId): SuiteCollection;
 
     /**
      * Return true if the driver has the given run ID.
+     *
+     * @param string $runId
+     *
+     * @return bool
      */
     public function has($runId);
 
     /**
-     * Delete the run with the given UUID.
-     */
-    public function delete($runId);
-
-    /**
      * Return a history iterator of HistoryEntries in descending
      * chronological order.
-     *
-     * @return HistoryIteratorInterface
      */
-    public function history();
+    public function history(): HistoryIteratorInterface;
 }

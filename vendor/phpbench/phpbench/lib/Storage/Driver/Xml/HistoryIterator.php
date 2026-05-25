@@ -12,6 +12,10 @@
 
 namespace PhpBench\Storage\Driver\Xml;
 
+use RuntimeException;
+use ArrayIterator;
+use ReturnTypeWillChange;
+use DirectoryIterator;
 use PhpBench\Dom\Document;
 use PhpBench\Serializer\XmlDecoder;
 use PhpBench\Storage\HistoryEntry;
@@ -25,26 +29,35 @@ use PhpBench\Storage\HistoryIteratorInterface;
  */
 class HistoryIterator implements HistoryIteratorInterface
 {
-    private $xmlDecoder;
-    private $path;
+    /** @var ArrayIterator<int, string> */
+    private ArrayIterator $years;
 
-    private $years;
-    private $months;
-    private $days;
-    private $entries;
-    private $initialized;
+    /** @var ArrayIterator<int, string> */
+    private ArrayIterator $months;
 
-    public function __construct(
-        XmlDecoder $xmlDecoder,
-        $path
-    ) {
-        $this->xmlDecoder = $xmlDecoder;
-        $this->path = $path;
+    /** @var ArrayIterator<int, string> */
+    private ArrayIterator $days;
+
+    /** @var ArrayIterator<int, HistoryEntry> */
+    private ArrayIterator $entries;
+
+    private ?bool $initialized = null;
+
+    /**
+     * @param string $path
+     */
+    public function __construct(private readonly XmlDecoder $xmlDecoder, private $path)
+    {
+        $this->years = new ArrayIterator();
+        $this->months = new ArrayIterator();
+        $this->days = new ArrayIterator();
+        $this->entries = new ArrayIterator();
     }
 
     /**
      * {@inheritdoc}
      */
+    #[ReturnTypeWillChange]
     public function current()
     {
         $this->init();
@@ -55,7 +68,7 @@ class HistoryIterator implements HistoryIteratorInterface
     /**
      * {@inheritdoc}
      */
-    public function next()
+    public function next(): void
     {
         $this->init();
 
@@ -89,7 +102,7 @@ class HistoryIterator implements HistoryIteratorInterface
     /**
      * {@inheritdoc}
      */
-    public function key()
+    public function key(): string
     {
         $this->init();
         $key = sprintf(
@@ -106,7 +119,7 @@ class HistoryIterator implements HistoryIteratorInterface
     /**
      * {@inheritdoc}
      */
-    public function rewind()
+    public function rewind(): void
     {
         $this->init();
         $this->years->rewind();
@@ -118,14 +131,14 @@ class HistoryIterator implements HistoryIteratorInterface
     /**
      * {@inheritdoc}
      */
-    public function valid()
+    public function valid(): bool
     {
         $this->init();
 
         return $this->entries->valid();
     }
 
-    private function init()
+    private function init(): void
     {
         if ($this->initialized) {
             return;
@@ -135,8 +148,6 @@ class HistoryIterator implements HistoryIteratorInterface
 
         if (file_exists($this->path)) {
             $this->years = $this->getDirectoryIterator($this->path);
-        } else {
-            $this->years = new \ArrayIterator();
         }
 
         // create directory iterators for each part of the date sharding
@@ -144,20 +155,14 @@ class HistoryIterator implements HistoryIteratorInterface
         // preceding shard, just create an empty array iterator.
         if ($this->years->valid()) {
             $this->months = $this->getDirectoryIterator($this->years->current());
-        } else {
-            $this->months = new \ArrayIterator();
         }
 
         if ($this->months->valid()) {
             $this->days = $this->getDirectoryIterator($this->months->current());
-        } else {
-            $this->days = new \ArrayIterator();
         }
 
         if ($this->days->valid()) {
             $this->entries = $this->getEntryIterator();
-        } else {
-            $this->entries = new \ArrayIterator();
         }
     }
 
@@ -166,12 +171,11 @@ class HistoryIterator implements HistoryIteratorInterface
      *
      * We hydrate all of the entries for the "current" day.
      *
-     * @return \ArrayIterator
+     * @return ArrayIterator<int, HistoryEntry>
      */
-    private function getEntryIterator()
+    private function getEntryIterator(): ArrayIterator
     {
-        $files = $this->days->current();
-        $files = new \DirectoryIterator($this->days->current());
+        $files = new DirectoryIterator($this->days->current());
         $historyEntries = [];
 
         foreach ($files as $file) {
@@ -186,14 +190,10 @@ class HistoryIterator implements HistoryIteratorInterface
             $historyEntries[] = $this->getHistoryEntry($file->getPathname());
         }
         usort($historyEntries, function ($entry1, $entry2) {
-            if ($entry1->getDate()->format('U') === $entry2->getDate()->format('U')) {
-                return;
-            }
-
-            return $entry1->getDate()->format('U') < $entry2->getDate()->format('U');
+            return $entry2->getDate()->format('U') <=> $entry1->getDate()->format('U');
         });
 
-        return new \ArrayIterator($historyEntries);
+        return new ArrayIterator($historyEntries);
     }
 
     /**
@@ -204,24 +204,23 @@ class HistoryIterator implements HistoryIteratorInterface
      * is still quite expensive as we are creating the entire object
      * graph for each suite run.
      *
-     * @param string $path
-     *
-     * @return HistoryEntry
      */
-    private function getHistoryEntry($path)
+    private function getHistoryEntry(string $path): HistoryEntry
     {
         $dom = new Document();
         $dom->load($path);
         $collection = $this->xmlDecoder->decode($dom);
         $suites = $collection->getSuites();
         $suite = reset($suites);
+
+        if ($suite === false) {
+            throw new RuntimeException('Suits collection is empty');
+        }
+
         $envInformations = $suite->getEnvInformations();
 
-        $vcsBranch = null;
-
-        if (isset($envInformations['vcs']['branch'])) {
-            $vcsBranch = $envInformations['vcs']['branch'];
-        }
+        /** @var string|null $vcsBranch */
+        $vcsBranch = $envInformations['vcs']['branch'] ?? null;
 
         $summary = $suite->getSummary();
         $entry = new HistoryEntry(
@@ -247,11 +246,11 @@ class HistoryIterator implements HistoryIteratorInterface
      *
      * We sort by date in descending order.
      *
-     * @return \ArrayIterator
+     * @return ArrayIterator<int, string>
      */
-    private function getDirectoryIterator($path)
+    private function getDirectoryIterator(string $path): ArrayIterator
     {
-        $nodes = new \DirectoryIterator($path);
+        $nodes = new DirectoryIterator($path);
         $dirs = [];
 
         foreach ($nodes as $dir) {
@@ -268,6 +267,6 @@ class HistoryIterator implements HistoryIteratorInterface
 
         krsort($dirs);
 
-        return new \ArrayIterator($dirs);
+        return new ArrayIterator($dirs);
     }
 }

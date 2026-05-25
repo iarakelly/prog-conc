@@ -12,6 +12,8 @@
 
 namespace PhpBench\Environment\Provider;
 
+use PhpBench\Environment\Information;
+use RuntimeException;
 use PhpBench\Environment\ProviderInterface;
 use PhpBench\Environment\VcsInformation;
 use Symfony\Component\Process\ExecutableFinder;
@@ -22,26 +24,27 @@ use Symfony\Component\Process\Process;
  */
 class Git implements ProviderInterface
 {
-    private $exeFinder;
-    private $exeName;
-    private $exePath;
+    private readonly ExecutableFinder $exeFinder;
+    private ?string $exePath = null;
 
-    public function __construct(ExecutableFinder $exeFinder = null, $exeName = 'git')
+    /**
+     * @param string $exeName
+     */
+    public function __construct(private readonly string $cwd, ?ExecutableFinder $exeFinder = null, private $exeName = 'git')
     {
         $this->exeFinder = $exeFinder ?: new ExecutableFinder();
-        $this->exeName = $exeName;
     }
 
     /**
      * {@inheritdoc}
      */
-    public function isApplicable()
+    public function isApplicable(): bool
     {
         if (null === $this->getGitPath()) {
             return false;
         }
 
-        $index = sprintf('%s/.git', getcwd());
+        $index = sprintf('%s/.git', $this->cwd);
 
         if (file_exists($index)) {
             return true;
@@ -53,7 +56,7 @@ class Git implements ProviderInterface
     /**
      * {@inheritdoc}
      */
-    public function getInformation()
+    public function getInformation(): Information
     {
         $process = $this->exec('symbolic-ref HEAD');
 
@@ -63,8 +66,8 @@ class Git implements ProviderInterface
             preg_match('{^refs/heads/(.*)$}', $process->getOutput(), $matches);
             $branchName = $matches[1];
         } else {
-            throw new \RuntimeException(sprintf(
-                'Encountered error when determining git branch exide code: %s, stderr: "%s"',
+            throw new RuntimeException(sprintf(
+                'Encountered error when determining git branch exit code: %s, stderr: "%s"',
                 $process->getExitCode(),
                 $process->getErrorOutput()
             ));
@@ -72,7 +75,7 @@ class Git implements ProviderInterface
 
         $commitshRef = sprintf(
             '%s/%s/%s',
-            getcwd(),
+            $this->cwd,
             '.git/refs/heads',
             $branchName
         );
@@ -80,16 +83,26 @@ class Git implements ProviderInterface
         if (!file_exists($commitshRef)) {
             $version = null;
         } else {
-            $version = trim(file_get_contents($commitshRef));
+            $content = file_get_contents($commitshRef);
+
+            if ($content === false) {
+                throw new RuntimeException(sprintf('Failed to read file %s', $commitshRef));
+            }
+            $version = trim($content);
         }
 
         return new VcsInformation('git', $branchName, $version);
     }
 
-    private function exec($cmd)
+    private function exec(string $cmd): Process
     {
-        $cmd = sprintf('%s %s', escapeshellarg($this->getGitPath()), $cmd);
-        $process = Process::fromShellCommandline($cmd);
+        $gitPath = $this->getGitPath();
+
+        if ($gitPath === null) {
+            throw new RuntimeException('Git path is not defined');
+        }
+        $cmd = sprintf('%s %s', escapeshellarg($gitPath), $cmd);
+        $process = Process::fromShellCommandline($cmd, $this->cwd);
         $process->run();
 
         return $process;

@@ -14,21 +14,27 @@ namespace PhpBench\Benchmark\Metadata\Annotations;
 
 /**
  * @Annotation
+ *
  * @Taget({"METHOD", "CLASS"})
+ *
  * @Attributes({
+ *
  *    @Attribute("value", required = true, type="integer")
  * })
  */
 class Sleep
 {
-    private $sleep;
+    private readonly int $sleep;
 
+    /**
+     * @param array{value: int} $params
+     */
     public function __construct($params)
     {
         $this->sleep = (int) $params['value'];
     }
 
-    public function getSleep()
+    public function getSleep(): int
     {
         return $this->sleep;
     }

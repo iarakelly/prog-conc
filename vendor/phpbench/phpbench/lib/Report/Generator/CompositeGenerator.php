@@ -12,50 +12,28 @@
 
 namespace PhpBench\Report\Generator;
 
-use PhpBench\Console\OutputAwareInterface;
-use PhpBench\Dom\Document;
 use PhpBench\Model\SuiteCollection;
 use PhpBench\Registry\Config;
 use PhpBench\Report\GeneratorInterface;
+use PhpBench\Report\Model\Reports;
 use PhpBench\Report\ReportManager;
-use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\OptionsResolver\OptionsResolver;
 
 /**
  * Report generator which is a composite of other named reports.
  */
-class CompositeGenerator implements GeneratorInterface, OutputAwareInterface
+class CompositeGenerator implements GeneratorInterface
 {
     /**
-     * @var ReportManager
      */
-    private $reportManager;
-
-    /**
-     * @var OutputInterface
-     */
-    private $output;
-
-    /**
-     * @param ReportManager $reportManager
-     */
-    public function __construct(ReportManager $reportManager)
+    public function __construct(private readonly ReportManager $reportManager)
     {
-        $this->reportManager = $reportManager;
     }
 
     /**
      * {@inheritdoc}
      */
-    public function setOutput(OutputInterface $output)
-    {
-        $this->output = $output;
-    }
-
-    /**
-     * {@inheritdoc}
-     */
-    public function configure(OptionsResolver $options)
+    public function configure(OptionsResolver $options): void
     {
         $options->setRequired(['reports']);
         $options->setAllowedTypes('reports', 'array');
@@ -64,20 +42,8 @@ class CompositeGenerator implements GeneratorInterface, OutputAwareInterface
     /**
      * {@inheritdoc}
      */
-    public function generate(SuiteCollection $collection, Config $config)
+    public function generate(SuiteCollection $collection, Config $config): Reports
     {
-        $reportDoms = $this->reportManager->generateReports($collection, $config['reports']);
-        $compositeDom = new Document();
-        $compositeEl = $compositeDom->createRoot('reports');
-        $compositeEl->setAttribute('name', $config->getName());
-
-        foreach ($reportDoms as $reportsDom) {
-            foreach ($reportsDom->xpath()->query('./report') as $reportDom) {
-                $reportEl = $compositeDom->importNode($reportDom, true);
-                $compositeEl->appendChild($reportEl);
-            }
-        }
-
-        return $compositeDom;
+        return $this->reportManager->generateReports($collection, $config['reports']);
     }
 }

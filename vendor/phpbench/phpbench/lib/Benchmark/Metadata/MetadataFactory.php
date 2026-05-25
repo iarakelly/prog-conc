@@ -12,33 +12,25 @@
 
 namespace PhpBench\Benchmark\Metadata;
 
-use PhpBench\Benchmark\Remote\ReflectionHierarchy;
-use PhpBench\Benchmark\Remote\Reflector;
+use InvalidArgumentException;
+use PhpBench\Model\Exception\InvalidParameterSets;
 use PhpBench\Model\Subject;
+use PhpBench\Reflection\ReflectionHierarchy;
+use PhpBench\Reflection\ReflectorInterface;
+use PhpBench\Benchmark\Metadata\Exception\CouldNotLoadMetadataException;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 
 /**
  * Benchmark Metadata Factory.
  */
 class MetadataFactory
 {
-    /**
-     * @var Reflector
-     */
-    private $reflector;
+    private readonly LoggerInterface $logger;
 
-    /**
-     * @var DriverInterface
-     */
-    private $driver;
-
-    /**
-     * @param Reflector $reflector
-     * @param DriverInterface $driver
-     */
-    public function __construct(Reflector $reflector, DriverInterface $driver)
+    public function __construct(private readonly ReflectorInterface $reflector, private readonly DriverInterface $driver, ?LoggerInterface $logger = null, private readonly bool $warnOnMetadataError = false)
     {
-        $this->reflector = $reflector;
-        $this->driver = $driver;
+        $this->logger = $logger ?: new NullLogger();
     }
 
     /**
@@ -56,7 +48,7 @@ class MetadataFactory
 
         try {
             $top = $hierarchy->getTop();
-        } catch (\InvalidArgumentException $exception) {
+        } catch (InvalidArgumentException) {
             return null;
         }
 
@@ -64,24 +56,40 @@ class MetadataFactory
             return null;
         }
 
-        $metadata = $this->driver->getMetadataForHierarchy($hierarchy);
+        try {
+            $metadata = $this->driver->getMetadataForHierarchy($hierarchy);
+        } catch (CouldNotLoadMetadataException $couldNotLoad) {
+            if (false === $this->warnOnMetadataError) {
+                throw $couldNotLoad;
+            }
+            $this->logger->warning(sprintf(
+                'Could not load metadata for file "%s" - is this file intended to be a benchmark? Perhaps setting the `runner.file_pattern` to `*Bench.php` will help: %s',
+                $file,
+                $couldNotLoad->getMessage()
+            ));
+
+            return null;
+        }
         $this->validateBenchmark($hierarchy, $metadata);
 
         // validate the subject and load the parameter sets
         foreach ($metadata->getSubjects() as $subject) {
             $this->validateSubject($hierarchy, $subject);
             $paramProviders = $subject->getParamProviders();
-            $parameterSets = $this->reflector->getParameterSets($metadata->getPath(), $paramProviders);
 
-            foreach ($parameterSets as $parameterSet) {
-                if (!is_array($parameterSet)) {
-                    throw new \InvalidArgumentException(sprintf(
-                        'Each parameter set must be an array, got "%s" for %s::%s',
-                        gettype($parameterSet),
-                        $metadata->getClass(),
-                        $subject->getName()
-                    ));
-                }
+            if (!$paramProviders) {
+                continue;
+            }
+
+            try {
+                $parameterSets = $this->reflector->getParameterSets($metadata->getPath(), $paramProviders);
+            } catch (InvalidParameterSets $invalid) {
+                throw new InvalidArgumentException(sprintf(
+                    '%s for %s::%s',
+                    $invalid->getMessage(),
+                    $metadata->getClass(),
+                    $subject->getName()
+                ));
             }
             $subject->setParameterSets($parameterSets);
         }
@@ -89,7 +97,7 @@ class MetadataFactory
         return $metadata;
     }
 
-    private function validateSubject(ReflectionHierarchy $benchmarkReflection, SubjectMetadata $subject)
+    private function validateSubject(ReflectionHierarchy $benchmarkReflection, SubjectMetadata $subject): void
     {
         foreach (['getBeforeMethods' => 'before', 'getAfterMethods' => 'after'] as $methodName => $context) {
             foreach ($subject->$methodName() as $method) {
@@ -98,7 +106,7 @@ class MetadataFactory
         }
     }
 
-    private function validateBenchmark(ReflectionHierarchy $hierarchy, BenchmarkMetadata $benchmark)
+    private function validateBenchmark(ReflectionHierarchy $hierarchy, BenchmarkMetadata $benchmark): void
     {
         foreach (['getBeforeClassMethods' => 'before class', 'getAfterClassMethods' => 'after class'] as $methodName => $context) {
             foreach ($benchmark->$methodName() as $method) {
@@ -107,19 +115,22 @@ class MetadataFactory
         }
     }
 
-    private function validateMethodExists($context, ReflectionHierarchy $benchmarkReflection, $method, $isStatic = false)
+    private function validateMethodExists(string $context, ReflectionHierarchy $benchmarkReflection, string $method, bool $isStatic = false): void
     {
         if (false === $benchmarkReflection->hasMethod($method)) {
-            throw new \InvalidArgumentException(sprintf(
+            throw new InvalidArgumentException(sprintf(
                 'Unknown %s method "%s" in benchmark class "%s"',
-                $context, $method, $benchmarkReflection->getTop()->class
+                $context,
+                $method,
+                $benchmarkReflection->getTop()->class
             ));
         }
 
         if ($isStatic !== $benchmarkReflection->hasStaticMethod($method)) {
-            throw new \InvalidArgumentException(sprintf(
+            throw new InvalidArgumentException(sprintf(
                 '%s method "%s" must %s static in benchmark class "%s"',
-                $context, $method,
+                $context,
+                $method,
                 $isStatic ? 'be' : 'not be',
                 $benchmarkReflection->getTop()->class
             ));

@@ -12,7 +12,9 @@
 
 namespace PhpBench\Registry;
 
-use PhpBench\DependencyInjection\Container;
+use InvalidArgumentException;
+use RuntimeException;
+use Psr\Container\ContainerInterface;
 
 /**
  * Service and configuration registry.
@@ -24,37 +26,40 @@ use PhpBench\DependencyInjection\Container;
  * $reg->getService($config['renderer']);
  * $reg->render($something, $config);
  * ```
+ *
+ * @template T of object
  */
 class Registry
 {
-    protected $serviceType;
-    private $serviceMap = [];
-    private $container;
-    private $services = [];
-    private $defaultService;
+    /**
+     * @var array<string,T|null>
+     */
+    protected $services = [];
 
-    public function __construct(
-        $serviceType,
-        Container $container,
-        $defaultService = null
-    ) {
-        $this->serviceType = $serviceType;
-        $this->container = $container;
-        $this->defaultService = $defaultService;
+    /**
+     * @var array<string, string>
+     */
+    private array $serviceMap = [];
+
+    /**
+     * @param string $serviceType
+     * @param string $defaultService
+     */
+    public function __construct(protected $serviceType, private readonly ContainerInterface $container, private $defaultService = null)
+    {
     }
 
     /**
      * Register a service ID with against the given name.
      *
-     * @param string $name
-     * @param string $serviceId
      */
-    public function registerService($name, $serviceId)
+    public function registerService(string $name, string $serviceId): void
     {
         if (isset($this->serviceMap[$name])) {
-            throw new \InvalidArgumentException(sprintf(
+            throw new InvalidArgumentException(sprintf(
                 '%s service "%s" is already registered',
-                $this->serviceType, $name
+                $this->serviceType,
+                $name
             ));
         }
 
@@ -65,13 +70,12 @@ class Registry
     /**
      * Directly set a named service.
      *
-     * @param string $name
-     * @param object $object
+     * @param T $object
      */
-    public function setService($name, $object)
+    public function setService(string $name, object $object): void
     {
         if (isset($this->services[$name])) {
-            throw new \InvalidArgumentException(sprintf(
+            throw new InvalidArgumentException(sprintf(
                 '%s service "%s" already exists.',
                 $this->serviceType,
                 $name
@@ -85,18 +89,18 @@ class Registry
      * Return the named service, lazily creating it from the container
      * if it has not yet been accessed.
      *
-     * @param string $name
      *
-     * @return object
+     * @return T
      */
-    public function getService($name = null)
+    public function getService(?string $name = null): object
     {
         $name = $name ?: $this->defaultService;
 
         if (!$name) {
-            throw new \RuntimeException(sprintf(
+            throw new RuntimeException(sprintf(
                 'You must configure a default %s service, registered %s services: "%s"',
-                $this->serviceType, $this->serviceType,
+                $this->serviceType,
+                $this->serviceType,
                 implode('", "', array_keys($this->services))
             ));
         }
@@ -111,10 +115,23 @@ class Registry
         return $this->services[$name];
     }
 
-    private function assertServiceExists($name)
+    public function hasService(string $name): bool
+    {
+        return array_key_exists($name, $this->services);
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function getServiceNames(): array
+    {
+        return array_keys($this->services);
+    }
+
+    private function assertServiceExists(string $name): void
     {
         if (!array_key_exists($name, $this->services)) {
-            throw new \InvalidArgumentException(sprintf(
+            throw new InvalidArgumentException(sprintf(
                 '%s service "%s" does not exist. Registered %s services: "%s"',
                 $this->serviceType,
                 $name,

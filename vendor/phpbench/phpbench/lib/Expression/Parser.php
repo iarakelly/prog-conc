@@ -1,138 +1,99 @@
 <?php
 
-/*
- * This file is part of the PHPBench package
- *
- * (c) Daniel Leech <daniel@dantleech.com>
- *
- * For the full copyright and license information, please view the LICENSE
- * file that was distributed with this source code.
- *
- */
-
 namespace PhpBench\Expression;
 
-use PhpBench\Expression\Constraint\Comparison;
-use PhpBench\Expression\Constraint\Composite;
-use PhpBench\Expression\Constraint\Constraint;
-use PhpBench\Json\JsonDecoder;
+use PhpBench\Expression\Ast\ArgumentListNode;
+use PhpBench\Expression\Ast\Node;
+use PhpBench\Expression\Exception\ParseletNotFound;
+use PhpBench\Expression\Exception\SyntaxError;
 
-/**
- * Parse a JSON query into a Constraint.
- *
- * Note this query language is based heavily upon the MongoDB
- * query documents:
- *
- * https://docs.mongodb.org/manual/tutorial/query-documents/#select-all-documents-in-a-collection
- *
- * Further modifications should copy the precendent laid down by that implementation.
- */
 class Parser
 {
     /**
-     * @var JsonDecoder
+     * @param Parselets<PrefixParselet> $prefixParselets
+     * @param Parselets<InfixParselet> $infixParselets
+     * @param Parselets<SuffixParselet> $suffixParselets
      */
-    private $decoder;
-
-    private $comparisons = [
-        '$gt', '$lt', '$eq', '$neq', '$gte', '$lte', '$in', '$nin', '$regex',
-    ];
-
-    private $composites = [
-        '$or', '$and',
-    ];
-
-    public function __construct()
-    {
-        $this->decoder = new JsonDecoder();
+    public function __construct(
+        private readonly Parselets $prefixParselets,
+        private readonly Parselets $infixParselets,
+        private readonly Parselets $suffixParselets
+    ) {
     }
 
-    /**
-     * @return Constraint
-     */
-    public function parse($json)
+    public function parse(Tokens $tokens): Node
     {
-        $expr = $this->decoder->decode($json);
+        $tokens = $tokens->withoutWhitespace();
+        $node = $this->parseList($tokens);
 
-        return $this->processExpr($expr);
+        if ($tokens->hasMore()) {
+            throw SyntaxError::forToken(
+                $tokens,
+                $tokens->current(),
+                sprintf('Unexpected "%s" at end of expression', $tokens->current()->type)
+            );
+        }
+
+        return $node;
     }
 
-    private function processExpr(array $expr)
+    public function parseList(Tokens $tokens): Node
     {
-        if (count($expr) != 1) {
-            $newExpr = [];
+        $expression = $this->parseExpression($tokens);
 
-            foreach ($expr as $key => $value) {
-                $newExpr[] = [$key => $value];
-            }
-            $expr = ['$and' => $newExpr];
+        $list = [$expression];
+
+        while ($tokens->current()->type === Token::T_COMMA) {
+            $tokens->chomp();
+            $list[] = $this->parseExpression($tokens);
         }
 
-        $left = key($expr);
-        $right = current($expr);
-
-        if (substr($left, 0, 1) === '$') {
-            return $this->parseComposite($left, $right);
+        if (count($list) > 1) {
+            return new ArgumentListNode($list);
         }
 
-        return $this->parseComparison($left, $right);
+        return $expression;
     }
 
-    private function parseComparison($field, $args)
+    public function parseExpression(Tokens $tokens, int $precedence = 0): Node
     {
-        if (!is_array($args)) {
-            $args = ['$eq' => $args];
-        }
+        $token = $tokens->current();
 
-        if (count($args) != 1) {
-            throw new \InvalidArgumentException(sprintf(
-                'Comparisons should be composed of a single key => value pair, got: "%s"',
-                json_encode($args)
+        try {
+            $left = $this->prefixParselets->forToken($token)->parse($this, $tokens);
+        } catch (ParseletNotFound) {
+            throw SyntaxError::forToken($tokens, $token, sprintf(
+                'Could not find parselet for "%s" token',
+                $token->type
             ));
         }
 
-        $operator = key($args);
-        $value = current($args);
-
-        if (!in_array($operator, $this->comparisons)) {
-            throw new \InvalidArgumentException(sprintf(
-                'Unknown comparison operator, got "%s". Valid operators: "%s"',
-                $operator,
-                implode('", "', $this->comparisons)
-            ));
+        if (Token::T_EOF === $tokens->current()->type) {
+            return $left;
         }
 
-        return new Comparison($operator, $field, $value);
+        $suffixParser = $this->suffixParselets->forTokenOrNull($tokens->current());
+
+        if ($suffixParser instanceof SuffixParselet) {
+            $left = $suffixParser->parse($left, $tokens);
+        }
+
+        while ($precedence < $this->infixPrecedence($tokens->current())) {
+            $infixParselet = $this->infixParselets->forToken($tokens->current());
+            $left = $infixParselet->parse($this, $left, $tokens);
+        }
+
+        return $left;
     }
 
-    private function parseComposite($operator, $args)
+    private function infixPrecedence(Token $token): int
     {
-        if (!in_array($operator, $this->composites)) {
-            throw new \InvalidArgumentException(sprintf(
-                'Unknown composite operator, got "%s". Valid operators: "%s"',
-                $operator,
-                implode('", "', $this->composites)
-            ));
+        $infixParser = $this->infixParselets->forTokenOrNull($token);
+
+        if (!$infixParser) {
+            return 0;
         }
 
-        if (count($args) < 2) {
-            throw new \InvalidArgumentException(sprintf(
-                'Constraints must have at least two arguments, got: "%s"',
-                json_encode($args)
-            ));
-        }
-
-        $leftConstraint = $this->processExpr(array_shift($args));
-
-        $composite = null;
-
-        foreach ($args as $rightArg) {
-            $rightConstraint = $this->processExpr($rightArg);
-            $composite = new Composite($operator, $leftConstraint, $rightConstraint);
-
-            $leftConstraint = $composite;
-        }
-
-        return $composite;
+        return $infixParser->precedence();
     }
 }

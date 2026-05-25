@@ -12,12 +12,10 @@
 
 namespace PhpBench\Console;
 
+use Symfony\Component\Console\Input\InputDefinition;
 use PhpBench\PhpBench;
 use Symfony\Component\Console\Application as BaseApplication;
-use Symfony\Component\Console\Formatter\OutputFormatterStyle;
-use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
-use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * PhpBench application.
@@ -30,31 +28,24 @@ class Application extends BaseApplication
     {
         parent::__construct(
             'phpbench',
-            PhpBench::VERSION
+            PhpBench::version()
         );
     }
 
     /**
      * {@inheritdoc}
      */
-    protected function getDefaultInputDefinition()
+    protected function getDefaultInputDefinition(): InputDefinition
     {
         $default = parent::getDefaultInputDefinition();
         $default->addOptions([
-            new InputOption('--config', null, InputOption::VALUE_REQUIRED, 'Configuration file'),
+            new InputOption('--profile', null, InputOption::VALUE_REQUIRED, 'Configuration file'),
+            new InputOption('--config', null, InputOption::VALUE_REQUIRED, 'Use the specified configuration profile'),
             new InputOption('--extension', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Enable an extension'),
+            new InputOption('--theme', null, InputOption::VALUE_REQUIRED, 'Theme'),
+            new InputOption('--working-dir', null, InputOption::VALUE_REQUIRED, 'Working directory'),
         ]);
 
         return $default;
-    }
-
-    /**
-     * {@inheritdoc}
-     */
-    protected function configureIO(InputInterface $input, OutputInterface $output)
-    {
-        parent::configureIO($input, $output);
-        $output->getFormatter()->setStyle('greenbg', new OutputFormatterStyle('black', 'green', []));
-        $output->getFormatter()->setStyle('warning', new OutputFormatterStyle('black', 'yellow', []));
     }
 }

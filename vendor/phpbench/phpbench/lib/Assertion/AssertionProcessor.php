@@ -12,51 +12,50 @@
 
 namespace PhpBench\Assertion;
 
-use PhpBench\Benchmark\Metadata\AssertionMetadata;
-use PhpBench\Json\JsonDecoder;
-use PhpBench\Registry\Config;
-use Symfony\Component\OptionsResolver\OptionsResolver;
+use PhpBench\Assertion\Exception\AssertionError;
+use PhpBench\Expression\Ast\BooleanNode;
+use PhpBench\Expression\Ast\ToleratedTrue;
+use PhpBench\Expression\Evaluator;
+use PhpBench\Expression\ExpressionLanguage;
+use PhpBench\Expression\Printer;
+use PhpBench\Expression\Printer\EvaluatingPrinter;
+use PhpBench\Model\Variant;
 
 class AssertionProcessor
 {
-    /**
-     * @var AsserterRegistry
-     */
-    private $registry;
-
-    /**
-     * @var JsonDecoder
-     */
-    private $jsonDecoder;
-
-    public function __construct(AsserterRegistry $registry, JsonDecoder $jsonDecoder)
+    public function __construct(private readonly ExpressionLanguage $expressionLanaugage, private readonly Evaluator $evaluator, private readonly Printer $printer, private readonly EvaluatingPrinter $evaluatingPrinter, private readonly ParameterProvider $provider)
     {
-        $this->registry = $registry;
-        $this->jsonDecoder = $jsonDecoder;
     }
 
-    public function assertWith($asserterName, array $config, AssertionData $data)
+    public function assert(Variant $variant, string $assertion): AssertionResult
     {
-        $asserter = $this->registry->getService($asserterName);
-        $optionsResolver = new OptionsResolver();
-        $asserter->configure($optionsResolver);
-        $config = new Config('test', $optionsResolver->resolve($config));
+        $node = $this->expressionLanaugage->parse($assertion);
+        $params = $this->provider->provideFor($variant);
+        $evaluated = $this->evaluator->evaluate($node, $params);
 
-        return $asserter->assert($data, $config);
-    }
+        $message = sprintf(
+            "%s\n= %s\n= %s",
+            $this->printer->print($node),
+            $this->evaluatingPrinter->withParams($params)->print($node),
+            $this->printer->print($evaluated)
+        );
 
-    /**
-     * Return an array of assertion metadatas from the raw JSON-like stuff from the CLI.
-     */
-    public function assertionsFromRawCliConfig(array $rawAssertions)
-    {
-        $assertions = [];
+        if ($evaluated instanceof BooleanNode) {
+            if ($evaluated->value()) {
+                return AssertionResult::ok();
+            }
 
-        foreach ($rawAssertions as $rawAssertion) {
-            $config = $this->jsonDecoder->decode($rawAssertion);
-            $assertions[] = new AssertionMetadata($config);
+            return AssertionResult::fail($message);
         }
 
-        return $assertions;
+        if ($evaluated instanceof ToleratedTrue) {
+            return AssertionResult::tolerated($message);
+        }
+
+        throw new AssertionError(sprintf(
+            'Assertion expression must evaluate to a boolean-like value, got "%s" as "%s"',
+            $evaluated::class,
+            $this->printer->print($evaluated)
+        ));
     }
 }

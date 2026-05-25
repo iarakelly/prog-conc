@@ -1,8 +1,5 @@
 # -*- coding: utf-8 -*-
 #
-# PHPBench documentation build configuration file, created by
-# sphinx-quickstart on Sun Sep 13 09:12:18 2015.
-#
 # This file is execfile()d with the current directory set to its
 # containing dir.
 #
@@ -19,6 +16,11 @@ import os
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #sys.path.insert(0, os.path.abspath('.'))
+sys.path.append(os.path.abspath("./_extension"))
+
+# adding PhpLexer
+from sphinx.highlighting import lexers
+from pygments.lexers.web import PhpLexer
 
 # -- General configuration ------------------------------------------------
 
@@ -28,7 +30,11 @@ import os
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
-extensions = []
+extensions = [
+        'approved',
+        'codeimport',
+        'sphinx_tabs.tabs',
+        ]
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
@@ -40,11 +46,11 @@ source_suffix = '.rst'
 #source_encoding = 'utf-8-sig'
 
 # The master toctree document.
-master_doc = 'index'
+master_doc = 'contents'
 
 # General information about the project.
 project = u'PHPBench'
-copyright = u'2015, Daniel Leech'
+copyright = u'Daniel Leech'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -87,23 +93,31 @@ exclude_patterns = ['_build']
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = 'sphinx'
 
+# This will be used when using the shorthand notation
+#highlight_language = 'php'
+
 # A list of ignored prefixes for module index sorting.
 #modindex_common_prefix = []
 
 # If true, keep warnings as "system message" paragraphs in the built documents.
 #keep_warnings = False
 
+# -- Settings for symfony doc extension ---------------------------------------------------
+
+# enable highlighting for PHP code not between ``<?php ... ?>`` by default
+lexers['php'] = PhpLexer(startinline=True)
 
 # -- Options for HTML output ----------------------------------------------
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
-# html_theme = 'classic'
+html_theme = 'alabaster'
 
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the
 # documentation.
-#html_theme_options = {}
+html_theme_options = {
+        }
 
 # Add any paths that contain custom themes here, relative to this directory.
 #html_theme_path = []
@@ -136,7 +150,7 @@ html_static_path = ['_static']
 
 # If not '', a 'Last updated on:' timestamp is inserted at every page bottom,
 # using the given strftime format.
-#html_last_updated_fmt = '%b %d, %Y'
+html_last_updated_fmt = '%b %d, %Y'
 
 # If true, SmartyPants will be used to convert quotes and dashes to
 # typographically correct entities.
@@ -165,7 +179,7 @@ html_static_path = ['_static']
 #html_show_sphinx = True
 
 # If true, "(C) Copyright ..." is shown in the HTML footer. Default is True.
-#html_show_copyright = True
+html_show_copyright = False
 
 # If true, an OpenSearch description file will be output, and all pages will
 # contain a <link> tag referring to it.  The value of this option must be the

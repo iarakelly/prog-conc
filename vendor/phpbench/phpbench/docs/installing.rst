@@ -4,48 +4,14 @@ Installing
 PHPBench can be installed either as dependency for your project or as a global
 package.
 
-Install as a PHAR package
--------------------------
-
-Installing as a PHAR is convenient, you will need to download the
-phar_ and the `public key`_, this can be
-done with CURL as follows:
-
-.. code-block:: bash
-
-    $ curl -o phpbench.phar https://phpbench.github.io/phpbench/phpbench.phar
-    $ curl -o phpbench.phar.pubkey https://phpbench.github.io/phpbench/phpbench.phar.pubkey
-
-You will probably then want make it executable and put it in your systems
-global path, on Linux systems:
-
-.. code-block:: bash
-
-    $ chmod 0755 phpbench.phar
-    $ sudo mv phpbench.phar /usr/local/bin/phpbench
-    $ sudo mv phpbench.phar.pubkey /usr/local/bin/phpbench.pubkey
-
-You can update the version at any time by using the ``self-update`` command:
-
-.. code-block:: bash
-
-    $ phpbench self-update
-
-.. warning::
-
-    PHPBench is unstable, installing as a PHAR means that you are always
-    updating to the latest version, the latest version may include BC breaks.
-    Therefore it is recommended to include the package as a project dependency
-    for continuous-integration.
-
 Composer Install
 ----------------
 
 To install PHPBench as a dependency of your project:
 
-.. code-block:: php
+.. code-block:: bash
 
-    $ composer require phpbench/phpbench @dev --dev
+    $ composer require phpbench/phpbench --dev
 
 
 You may then run PHPBench from your project's directory as follows:
@@ -54,26 +20,39 @@ You may then run PHPBench from your project's directory as follows:
 
     $ ./vendor/bin/phpbench
 
-Composer Global Install
------------------------
+Install with PHIVE
+------------------
 
-You may install `PHPBench globally`_ using composer:
-
-.. code-block:: php
-
-    $ composer global require phpbench/phpbench @dev
-
-.. note::
-
-    You will need to add Composer's global ``bin`` directory to your systems
-    ``PATH`` variable (on linux). See the above link.
-
-You may now run PHPBench simply as:
+Install with The PHAR Installation and Verification Environment `PHIVE <https://phar.io>`_:
 
 .. code-block:: bash
 
-    $ phpbench
+    $ phive install phpbench
 
-.. _PHPBench globally: http://akrabat.com/global-installation-of-php-tools-with-composer/
-.. _phar: https://phpbench.github.io/phpbench/phpbench.phar
-.. _public key: https://phpbench.github.io/phpbench/phpbench.phar.pubkey
+Install as a PHAR
+-----------------
+
+You can download `phpbench.phar` and the `phpbench.phar.asc`:
+as follows:
+
+.. code-block:: bash
+
+    $ curl -Lo phpbench.phar https://github.com/phpbench/phpbench/releases/latest/download/phpbench.phar
+    $ curl -Lo phpbench.phar.asc https://github.com/phpbench/phpbench/releases/latest/download/phpbench.phar.asc
+
+The PHAR is signed. In order to verify that it was signed by the PHPBench team execute the
+following:
+
+.. code-block:: bash
+
+     gpg --recv-keys 1EF396F668895578CAB457A26FC579F5F0FCC966
+     gpg --with-fingerprint --verify phpbench.phar.asc phpbench.phar
+
+You should then see something like the following:
+
+.. code-block:: bash
+
+    gpg: Signature made Tue 13 Apr 2021 16:35:57 BST
+    gpg:                using RSA key 29BE1AD59988642ADCDFC86715E1F8E2B149E6F5
+    gpg: Good signature from "Daniel Leech (PHPBench Github Key) <daniel@dantleech.com>" [ultimate]
+    Primary key fingerprint: 29BE 1AD5 9988 642A DCDF  C867 15E1 F8E2 B149 E6F5

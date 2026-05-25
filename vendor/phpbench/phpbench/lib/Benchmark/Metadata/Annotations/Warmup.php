@@ -14,21 +14,31 @@ namespace PhpBench\Benchmark\Metadata\Annotations;
 
 /**
  * @Annotation
+ *
  * @Taget({"METHOD", "CLASS"})
+ *
  * @Attributes({
+ *
  *    @Attribute("value", required = true, type="mixed")
  * })
  */
 class Warmup
 {
-    private $revs;
+    /** @var int[] */
+    private readonly array $revs;
 
+    /**
+     * @param array{value: int[]} $revs
+     */
     public function __construct($revs)
     {
         $this->revs = (array) $revs['value'];
     }
 
-    public function getRevs()
+    /**
+     * @return int[]
+     */
+    public function getRevs(): array
     {
         return $this->revs;
     }

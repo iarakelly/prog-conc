@@ -16,16 +16,14 @@ use PhpBench\Dom\Document;
 use PhpBench\Model\SuiteCollection;
 use PhpBench\Registry\Config;
 use PhpBench\Registry\RegistrableInterface;
+use PhpBench\Report\Model\Report;
+use PhpBench\Report\Model\Reports;
 
 interface GeneratorInterface extends RegistrableInterface
 {
     /**
      * Generate the report document from the suite result document.
      *
-     * @param SuiteCollection $collection
-     * @param Config $config
-     *
-     * @return Document
      */
-    public function generate(SuiteCollection $collection, Config $config);
+    public function generate(SuiteCollection $collection, Config $config): Reports;
 }

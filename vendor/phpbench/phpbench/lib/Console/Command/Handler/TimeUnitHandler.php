@@ -12,6 +12,7 @@
 
 namespace PhpBench\Console\Command\Handler;
 
+use PhpBench\Util\Cast;
 use PhpBench\Util\TimeUnit;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -19,26 +20,22 @@ use Symfony\Component\Console\Input\InputOption;
 
 class TimeUnitHandler
 {
-    private $timeUnit;
-
-    public function __construct(
-        TimeUnit $timeUnit
-    ) {
-        $this->timeUnit = $timeUnit;
+    public function __construct(private readonly TimeUnit $timeUnit)
+    {
     }
 
-    public static function configure(Command $command)
+    public static function configure(Command $command): void
     {
         $command->addOption('time-unit', null, InputOption::VALUE_REQUIRED, 'Override the time unit');
         $command->addOption('precision', null, InputOption::VALUE_REQUIRED, 'Override the measurement precision');
         $command->addOption('mode', null, InputOption::VALUE_REQUIRED, 'Override the unit display mode ("throughput", "time")');
     }
 
-    public function timeUnitFromInput(InputInterface $input)
+    public function timeUnitFromInput(InputInterface $input): void
     {
-        $timeUnit = $input->getOption('time-unit');
-        $mode = $input->getOption('mode');
-        $precision = $input->getOption('precision');
+        $timeUnit = Cast::toStringOrNull($input->getOption('time-unit'));
+        $mode = Cast::toStringOrNull($input->getOption('mode'));
+        $precision = Cast::toIntOrNull($input->getOption('precision'));
 
         if ($timeUnit) {
             $this->timeUnit->overrideDestUnit($timeUnit);

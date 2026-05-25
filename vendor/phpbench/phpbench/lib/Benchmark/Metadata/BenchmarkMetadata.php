@@ -12,57 +12,33 @@
 
 namespace PhpBench\Benchmark\Metadata;
 
+use PhpBench\Model\Benchmark;
+use PhpBench\Model\Subject;
+
 /**
  * Benchmark metadata class.
  */
 class BenchmarkMetadata
 {
-    /**
-     * @var string
-     */
-    private $path;
+    /** @var array<string, SubjectMetadata> indexed by subject name */
+    private array $subjects = [];
 
-    /**
-     * @var string
-     */
-    private $class;
+    /** @var string[] */
+    private array $beforeClassMethods = [];
 
-    /**
-     * @var SubjectMetadata[]
-     */
-    private $subjects = [];
+    /** @var string[] */
+    private array $afterClassMethods = [];
 
-    /**
-     * @var string[]
-     */
-    private $beforeClassMethods = [];
+    private ?ExecutorMetadata $executorMetadata = null;
 
-    /**
-     * @var string[]
-     */
-    private $afterClassMethods = [];
-
-    /**
-     * @var ExecutorMetadata
-     */
-    private $executorMetadata;
-
-    /**
-     * @param string $path
-     * @param string $class
-     */
-    public function __construct($path, $class)
+    public function __construct(private readonly string $path, private readonly string $class)
     {
-        $this->path = $path;
-        $this->class = $class;
     }
 
     /**
      * Get the file path of this benchmark.
-     *
-     * @return string
      */
-    public function getPath()
+    public function getPath(): string
     {
         return $this->path;
     }
@@ -70,11 +46,8 @@ class BenchmarkMetadata
     /**
      * Get or create a new SubjectMetadata instance with the given name.
      *
-     * @param string $name
-     *
-     * @return SubjectMetadata
      */
-    public function getOrCreateSubject($name)
+    public function getOrCreateSubject(string $name): SubjectMetadata
     {
         if (isset($this->subjects[$name])) {
             return $this->subjects[$name];
@@ -88,9 +61,9 @@ class BenchmarkMetadata
     /**
      * Get the subject metadata instances for this benchmark metadata.
      *
-     * @return SubjectMetadata[]
+     * @return array<string, SubjectMetadata> indexed by subject name
      */
-    public function getSubjects()
+    public function getSubjects(): array
     {
         return $this->subjects;
     }
@@ -100,23 +73,10 @@ class BenchmarkMetadata
      *
      * @param string[] $filters
      */
-    public function filterSubjectNames(array $filters)
+    public function filterSubjectNames(array $filters): void
     {
         foreach (array_keys($this->subjects) as $subjectName) {
-            $unset = true;
-
-            foreach ($filters as $filter) {
-                if (preg_match(
-                    sprintf('{^.*?%s.*?$}', $filter),
-                    sprintf('%s::%s', $this->getClass(), $subjectName)
-                )) {
-                    $unset = false;
-
-                    break;
-                }
-            }
-
-            if (true === $unset) {
+            if (false === Subject::matchesPatterns($this->class, $subjectName, $filters)) {
                 unset($this->subjects[$subjectName]);
             }
         }
@@ -127,7 +87,7 @@ class BenchmarkMetadata
      *
      * @param string[] $groups
      */
-    public function filterSubjectGroups(array $groups)
+    public function filterSubjectGroups(array $groups): void
     {
         foreach ($this->subjects as $subjectName => $subject) {
             if (0 === count(array_intersect($subject->getGroups(), $groups))) {
@@ -138,28 +98,26 @@ class BenchmarkMetadata
 
     /**
      * Return true if there are subjects in this benchmark metadata, false if not.
-     *
-     * @return bool
      */
-    public function hasSubjects()
+    public function hasSubjects(): bool
     {
         return 0 !== count($this->subjects);
     }
 
     /**
      * Return the benchmark class.
-     *
-     * @return string
      */
-    public function getClass()
+    public function getClass(): string
     {
         return $this->class;
     }
 
     /**
      * Return any methods that should be called before the benchmark class is executed.
+     *
+     * @return string[]
      */
-    public function getBeforeClassMethods()
+    public function getBeforeClassMethods(): array
     {
         return $this->beforeClassMethods;
     }
@@ -167,17 +125,19 @@ class BenchmarkMetadata
     /**
      * Set any methods that should be called before the benchmark class is executed.
      *
-     * @param array $beforeClassMethods
+     * @param string[] $beforeClassMethods
      */
-    public function setBeforeClassMethods(array $beforeClassMethods)
+    public function setBeforeClassMethods(array $beforeClassMethods): void
     {
         $this->beforeClassMethods = $beforeClassMethods;
     }
 
     /**
      * Return any methods that should be called after the benchmark class is executed.
+     *
+     * @return string[]
      */
-    public function getAfterClassMethods()
+    public function getAfterClassMethods(): array
     {
         return $this->afterClassMethods;
     }
@@ -185,28 +145,38 @@ class BenchmarkMetadata
     /**
      * Set any methods that should be called after the benchmark class is executed.
      *
-     * @param array $afterClassMethods
+     * @param string[] $afterClassMethods
      */
-    public function setAfterClassMethods(array $afterClassMethods)
+    public function setAfterClassMethods(array $afterClassMethods): void
     {
         $this->afterClassMethods = $afterClassMethods;
     }
 
-    public function getIterator()
+    /**
+     * @return array<string, SubjectMetadata>
+     */
+    public function getIterator(): array
     {
         return $this->subjects;
     }
 
-    /**
-     * @return ExecutorMetadata|null
-     */
-    public function getExecutor()
+    public function getExecutor(): ?ExecutorMetadata
     {
         return $this->executorMetadata;
     }
 
-    public function setExecutor(ExecutorMetadata $serviceMetadata)
+    public function setExecutor(ExecutorMetadata $serviceMetadata): void
     {
         $this->executorMetadata = $serviceMetadata;
+    }
+
+    public function merge(self $benchmarkMetadata): void
+    {
+        $this->beforeClassMethods = array_merge($this->beforeClassMethods, $benchmarkMetadata->beforeClassMethods);
+        $this->afterClassMethods = array_merge($this->afterClassMethods, $benchmarkMetadata->afterClassMethods);
+
+        foreach ($benchmarkMetadata->getSubjects() as $subject) {
+            $this->getOrCreateSubject($subject->getName())->merge($subject);
+        }
     }
 }

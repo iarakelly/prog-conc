@@ -12,83 +12,95 @@
 
 namespace PhpBench\Progress\Logger;
 
-use PhpBench\Assertion\AssertionFailures;
-use PhpBench\Assertion\AssertionWarnings;
-use PhpBench\Console\OutputAwareInterface;
+use PhpBench\Benchmark\RunnerConfig;
 use PhpBench\Model\Iteration;
 use PhpBench\Model\Result\TimeResult;
 use PhpBench\Model\Suite;
+use PhpBench\Model\Summary;
 use PhpBench\Model\Variant;
 use PhpBench\PhpBench;
+use PhpBench\Progress\VariantFormatter;
 use PhpBench\Util\TimeUnit;
 use Symfony\Component\Console\Output\OutputInterface;
 
-abstract class PhpBenchLogger extends NullLogger implements OutputAwareInterface
+abstract class PhpBenchLogger extends NullLogger
 {
-    protected $output;
-
     /**
      * @var TimeUnit
      */
     protected $timeUnit;
 
-    public function __construct(TimeUnit $timeUnit = null)
-    {
-        $this->timeUnit = $timeUnit;
-    }
+    /**
+     * @var OutputInterface
+     */
+    public $output;
 
-    public function setOutput(OutputInterface $output)
-    {
+    public function __construct(
+        OutputInterface $output,
+        private readonly VariantFormatter $formatter,
+        TimeUnit $timeUnit
+    ) {
+        $this->timeUnit = $timeUnit;
         $this->output = $output;
     }
 
-    public function startSuite(Suite $suite)
+    public function startSuite(RunnerConfig $config, Suite $suite): void
     {
-        $this->output->writeln('PhpBench ' . PhpBench::VERSION . '. Running benchmarks.');
+        $this->output->writeln(sprintf(
+            'PHPBench (%s) running benchmarks... <fg=cyan>#standwith</><fg=yellow>ukraine</>',
+            PhpBench::version()
+        ));
 
         if ($configPath = $suite->getConfigPath()) {
-            $this->output->writeln(sprintf('Using configuration file: %s', $configPath));
+            $this->output->writeln(sprintf('with configuration file: %s', $configPath));
+        }
+
+        $summary = $suite->getSummary();
+        $this->output->writeln(sprintf(
+            'with PHP version %s, xdebug %s, opcache %s',
+            $summary->getPhpVersion() ?? '<unknown>',
+            $summary->getXdebugEnabled() ? '✔' : '❌',
+            $summary->getOpcacheEnabled() ? '✔' : '❌'
+        ));
+
+        foreach ($config->getBaselines() as $baseline) {
+            $this->output->writeln(sprintf(
+                'comparing [%s vs. %s]',
+                $suite->getTag() ?: 'actual',
+                $baseline->getTag()
+            ));
         }
 
         $this->output->writeln('');
     }
 
-    public function endSuite(Suite $suite)
+    public function endSuite(Suite $suite): void
     {
         $summary = $suite->getSummary();
 
         $this->listErrors($suite);
         $this->listFailures($suite);
-        $this->listWarnings($suite);
 
-        $this->output->writeln(sprintf(
-            '%s subjects, %s iterations, %s revs, %s rejects, %s failures, %s warnings',
+        $this->output->writeln((function (Summary $summary, string $message) {
+            if ($summary->getNbFailures() || $summary->getNbErrors()) {
+                return sprintf('<error>%s</>', $message);
+            }
+
+            if ($summary->getNbAssertions()) {
+                return sprintf('<success>%s</>', $message);
+            }
+
+            return $message;
+        })($suite->getSummary(), sprintf(
+            'Subjects: %s, Assertions: %s, Failures: %s, Errors: %s',
             number_format($summary->getNbSubjects()),
-            number_format($summary->getNbIterations()),
-            number_format($summary->getNbRevolutions()),
-            number_format($summary->getNbRejects()),
+            number_format($summary->getNbAssertions()),
             number_format($summary->getNbFailures()),
-            number_format($summary->getNbWarnings())
-        ));
-
-        $this->output->writeln(sprintf(
-            '(best [mean mode] worst) = %s [%s %s] %s (%s)',
-            number_format($this->timeUnit->toDestUnit($summary->getMinTime()), 3),
-            number_format($this->timeUnit->toDestUnit($summary->getMeanTime()), 3),
-            number_format($this->timeUnit->toDestUnit($summary->getModeTime()), 3),
-            number_format($this->timeUnit->toDestUnit($summary->getMaxTime()), 3),
-            $this->timeUnit->getDestSuffix()
-        ));
-
-        $this->output->writeln(sprintf(
-            '⅀T: %s μSD/r %s μRSD/r: %s%%',
-            $this->timeUnit->format($summary->getTotalTime(), null, TimeUnit::MODE_TIME),
-            $this->timeUnit->format($summary->getMeanStDev(), null, TimeUnit::MODE_TIME),
-            number_format($summary->getMeanRelStDev(), 3)
-        ));
+            number_format($summary->getNbErrors())
+        )));
     }
 
-    private function listErrors(Suite $suite)
+    private function listErrors(Suite $suite): void
     {
         $errorStacks = $suite->getErrorStacks();
 
@@ -102,7 +114,7 @@ abstract class PhpBenchLogger extends NullLogger implements OutputAwareInterface
 
         foreach ($errorStacks as $errorStack) {
             $this->output->writeln(sprintf(
-                '%s::%s</error>',
+                '<error>%s::%s</>',
                 $errorStack->getVariant()->getSubject()->getBenchmark()->getClass(),
                 $errorStack->getVariant()->getSubject()->getName()
             ));
@@ -110,16 +122,14 @@ abstract class PhpBenchLogger extends NullLogger implements OutputAwareInterface
 
             foreach ($errorStack as $error) {
                 $this->output->writeln(sprintf(
-                    "    %s %s\n\n    %s</comment>\n",
-                    $error->getClass(),
-                    str_replace("\n", "\n    ", $error->getMessage()),
-                    str_replace("\n", "\n    ", $error->getTrace())
+                    "    %s\n",
+                    str_replace("\n", "\n    ", (string) $error->getMessage())
                 ));
             }
         }
     }
 
-    private function listFailures(Suite $suite)
+    private function listFailures(Suite $suite): void
     {
         $variantFailures = $suite->getFailures();
 
@@ -127,95 +137,36 @@ abstract class PhpBenchLogger extends NullLogger implements OutputAwareInterface
             return;
         }
 
-        $this->output->write(PHP_EOL);
         $this->output->writeln(sprintf('%d variants failed:', count($variantFailures)));
         $this->output->write(PHP_EOL);
 
-        /** @var AssertionFailures $variantFailure */
         foreach ($variantFailures as $variantFailure) {
             $this->output->writeln(sprintf(
-                '<error>%s::%s %s</error>',
+                '  <fg=red>✘</> %s::%s # %s',
                 $variantFailure->getVariant()->getSubject()->getBenchmark()->getClass(),
                 $variantFailure->getVariant()->getSubject()->getName(),
-                json_encode($variantFailure->getVariant()->getParameterSet()->getArrayCopy())
+                $variantFailure->getVariant()->getParameterSet()->getName()
             ));
             $this->output->write(PHP_EOL);
 
             foreach ($variantFailure as $index => $failure) {
-                $this->output->writeln(sprintf('    %s) %s', $index + 1, $failure->getMessage()));
+                $this->output->writeln(sprintf('    %s) %s', $index + 1, str_replace("\n", "\n       ", (string) $failure->getMessage())));
             }
             $this->output->write(PHP_EOL);
         }
     }
 
-    private function listWarnings(Suite $suite)
+    public function formatIterationsFullSummary(Variant $variant): string
     {
-        $variantWarnings = $suite->getWarnings();
-
-        if (empty($variantWarnings)) {
-            return;
-        }
-
-        $this->output->write(PHP_EOL);
-        $this->output->writeln(sprintf('%d variants have warnings:', count($variantWarnings)));
-        $this->output->write(PHP_EOL);
-
-        /** @var AssertionWarnings $variantWarning */
-        foreach ($variantWarnings as $variantWarning) {
-            $this->output->writeln(sprintf(
-                '<warning>%s::%s %s</warning>',
-                $variantWarning->getVariant()->getSubject()->getBenchmark()->getClass(),
-                $variantWarning->getVariant()->getSubject()->getName(),
-                json_encode($variantWarning->getVariant()->getParameterSet()->getArrayCopy())
-            ));
-            $this->output->write(PHP_EOL);
-
-            foreach ($variantWarning as $index => $warning) {
-                $this->output->writeln(sprintf('    %s) %s', $index + 1, $warning->getMessage()));
-            }
-            $this->output->write(PHP_EOL);
-        }
+        return $this->formatter->formatVariant($variant);
     }
 
-    public function formatIterationsFullSummary(Variant $variant)
+    public function formatIterationsShortSummary(Variant $variant): string
     {
-        $subject = $variant->getSubject();
-        $stats = $variant->getStats();
-        $timeUnit = $this->timeUnit->resolveDestUnit($variant->getSubject()->getOutputTimeUnit());
-        $mode = $this->timeUnit->resolveMode($subject->getOutputMode());
-        $precision = $this->timeUnit->resolvePrecision($subject->getOutputTimePrecision());
-
-        return sprintf(
-            "%s[μ Mo]/r: %s %s (%s) [μSD μRSD]/r: %s %s%%%s",
-
-            $variant->hasFailed() ? '<error>' : '',
-            $this->timeUnit->format($stats->getMean(), $timeUnit, $mode, $precision, false),
-            $this->timeUnit->format($stats->getMode(), $timeUnit, $mode, $precision, false),
-            $this->timeUnit->getDestSuffix($timeUnit, $mode),
-            $this->timeUnit->format($stats->getStdev(), $timeUnit, TimeUnit::MODE_TIME),
-            number_format($stats->getRstdev(), 2),
-            $variant->hasFailed() ? '</error>' : ''
-        );
+        return $this->formatter->formatVariant($variant);
     }
 
-    public function formatIterationsShortSummary(Variant $variant)
-    {
-        $subject = $variant->getSubject();
-        $stats = $variant->getStats();
-        $timeUnit = $this->timeUnit->resolveDestUnit($variant->getSubject()->getOutputTimeUnit());
-        $mode = $this->timeUnit->resolveMode($subject->getOutputMode());
-        $precision = $this->timeUnit->resolvePrecision($subject->getOutputTimePrecision());
-
-        return sprintf(
-            '[μ Mo]/r: %s %s μRSD/r: %s%%',
-
-            $this->timeUnit->format($stats->getMean(), $timeUnit, $mode, $precision, false),
-            $this->timeUnit->format($stats->getMode(), $timeUnit, $mode, $precision, false),
-            number_format($stats->getRstdev(), 2)
-        );
-    }
-
-    protected function formatIterationTime(Iteration $iteration)
+    protected function formatIterationTime(Iteration $iteration): string
     {
         $subject = $iteration->getVariant()->getSubject();
         $timeUnit = $subject->getOutputTimeUnit();
@@ -239,7 +190,7 @@ abstract class PhpBenchLogger extends NullLogger implements OutputAwareInterface
         );
     }
 
-    protected function formatVariantName(Variant $variant)
+    protected function formatVariantName(Variant $variant): string
     {
         if (count($variant->getSubject()->getVariants()) > 1) {
             return sprintf(

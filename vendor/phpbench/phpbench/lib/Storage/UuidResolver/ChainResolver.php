@@ -17,29 +17,24 @@ use PhpBench\Storage\UuidResolverInterface;
 class ChainResolver implements UuidResolverInterface
 {
     /**
-     * @var array
+     * @param UuidResolverInterface[] $resolvers
      */
-    private $resolvers = [];
-
-    public function __construct(array $resolvers)
+    public function __construct(private readonly array $resolvers)
     {
-        $this->resolvers = $resolvers;
     }
 
-    public function supports(string $reference): bool
+    public function resolve(string $reference): ?string
     {
-        return true;
-    }
-
-    public function resolve(string $reference): string
-    {
-        /** @var UuidResolverInterface $resolver */
         foreach ($this->resolvers as $resolver) {
-            if ($resolver->supports($reference)) {
-                return $resolver->resolve($reference);
+            $ref = $resolver->resolve($reference);
+
+            if (null === $ref) {
+                continue;
             }
+
+            return $ref;
         }
 
-        return $reference;
+        return null;
     }
 }

@@ -12,6 +12,7 @@
 
 namespace PhpBench\Json;
 
+use InvalidArgumentException;
 use Seld\JsonLint\JsonParser;
 
 /**
@@ -26,10 +27,7 @@ use Seld\JsonLint\JsonParser;
  */
 class JsonDecoder
 {
-    /**
-     * @var JsonParser
-     */
-    private $parser;
+    private readonly JsonParser $parser;
 
     public function __construct()
     {
@@ -40,13 +38,14 @@ class JsonDecoder
      * Normalize, parse and decode the given JSON(ish) encoded string into
      * an array.
      *
-     * @param string $jsonString
-     *
-     * @return array
      */
-    public function decode($jsonString)
+    public function decode(string $jsonString): array
     {
         $jsonString = $this->normalize($jsonString);
+
+        if (!$jsonString) {
+            return [];
+        }
         $this->parser->parse($jsonString);
 
         return json_decode($jsonString, true);
@@ -56,10 +55,10 @@ class JsonDecoder
      * Allow "non-strict" JSON - i.e. if no quotes are provided then try and
      * add them.
      */
-    private function normalize($jsonString)
+    private function normalize($jsonString): string
     {
         if (!is_string($jsonString)) {
-            throw new \InvalidArgumentException(sprintf(
+            throw new InvalidArgumentException(sprintf(
                 'Expected a string, got "%s"',
                 gettype($jsonString)
             ));
@@ -68,18 +67,14 @@ class JsonDecoder
         $inRight = $inQuote = $inFakeQuote = false;
         $fakeQuoteStart = null;
 
-        if (empty($chars)) {
-            return;
-        }
-
-        if ($chars[0] !== '{') {
+        if (isset($chars[0]) && $chars[0] !== '{') {
             array_unshift($chars, '{');
             $chars[] = '}';
         }
 
         for ($index = 0; $index < count($chars); $index++) {
             $char = $chars[$index];
-            $prevChar = isset($chars[$index - 1]) ? $chars[$index - 1] : null;
+            $prevChar = $chars[$index - 1] ?? null;
 
             if (!$inQuote && $prevChar == ':') {
                 $inRight = true;
@@ -101,14 +96,12 @@ class JsonDecoder
 
             // if we added a "fake" quote, look for the end of the unquoted string
             if ($inFakeQuote && preg_match('{[\s:\}\],]}', $char)) {
-
                 // if we are on the left side, then "]" is OK.
                 if (!$inRight && $char === ']') {
                     continue;
                 }
 
                 if ($inRight) {
-
                     // extract the right hand value
                     $string = implode('', array_slice($chars, $fakeQuoteStart + 1, $index - 1 - $fakeQuoteStart));
 

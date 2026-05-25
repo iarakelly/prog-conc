@@ -14,22 +14,32 @@ namespace PhpBench\Benchmark\Metadata\Annotations;
 
 /**
  * @Annotation
+ *
  * @Taget({"METHOD", "CLASS"})
+ *
  * @Attributes({
+ *
  *    @Attribute("value", required = true, type="array"),
  * })
  */
 class Groups extends AbstractArrayAnnotation
 {
-    private $groups;
+    /** @var string[] */
+    private readonly array $groups;
 
+    /**
+     * @param array{value: string[]} $params
+     */
     public function __construct($params)
     {
         parent::__construct($params);
         $this->groups = (array) $params['value'];
     }
 
-    public function getGroups()
+    /**
+     * @return string[]
+     */
+    public function getGroups(): array
     {
         return $this->groups;
     }

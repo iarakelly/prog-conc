@@ -12,46 +12,28 @@
 
 namespace PhpBench\Storage\UuidResolver;
 
-use InvalidArgumentException;
+use PhpBench\Model\Tag;
+use PhpBench\Storage\Exception\InvalidTagException;
 use PhpBench\Storage\HistoryEntry;
 use PhpBench\Storage\StorageRegistry;
 use PhpBench\Storage\UuidResolverInterface;
 
 class TagResolver implements UuidResolverInterface
 {
-    /**
-     * @var StorageRegistry
-     */
-    private $storageRegistry;
-
-    public function __construct(StorageRegistry $storageRegistry)
+    public function __construct(private readonly StorageRegistry $storageRegistry)
     {
-        $this->storageRegistry = $storageRegistry;
     }
-
-    public function supports(string $reference): bool
-    {
-        if (0 === strpos($reference, 'tag:')) {
-            if (strlen($reference) === 4) {
-                return false;
-            }
-
-            return true;
-        }
-
-        return false;
-    }
-
-    public function resolve(string $reference): string
+    public function resolve(string $reference): ?string
     {
         $history = $this->storageRegistry->getService()->history();
 
-        list($offset, $tag) = $this->tagAndOffset($reference);
+        [$offset, $tag] = $this->tagAndOffset($reference);
 
         $count = 0;
+
         /** @var HistoryEntry $entry */
         foreach ($history as $entry) {
-            if (strtolower($tag) === strtolower($entry->getTag())) {
+            if ($tag->__toString() === strtolower($entry->getTag() ?? '')) {
                 if ($count++ < $offset) {
                     continue;
                 }
@@ -60,17 +42,24 @@ class TagResolver implements UuidResolverInterface
             }
         }
 
-        throw new InvalidArgumentException(sprintf(
-            'Could not find tag "%s"', $tag
-        ));
+        return null;
     }
 
-    private function tagAndOffset(string $reference)
+    /**
+     * @return array{int, Tag}
+     */
+    private function tagAndOffset(string $reference): array
     {
-        preg_match('{^tag:([a-zA-Z_]+)-?([0-9]+)?$}', $reference, $matches);
-        $tag = $matches[1] ?? null;
+        if (!preg_match(sprintf('{^(%s)?-?([0-9]+)?$}', Tag::REGEX_PATTERN), $reference, $matches)) {
+            throw new InvalidTagException(sprintf(
+                'Could not parse tag "%s"',
+                $reference
+            ));
+        }
+
+        $tag = $matches[1] ? new Tag($matches[1]) : null;
         $offset = $matches[2] ?? 0;
 
-        return [$offset, $tag];
+        return [(int)$offset, $tag];
     }
 }

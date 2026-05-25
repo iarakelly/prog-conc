@@ -12,298 +12,307 @@
 
 namespace PhpBench\Benchmark\Metadata;
 
+use PhpBench\Model\ParameterSetsCollection;
+
 /**
  * Metadata for benchmarkMetadata subjects.
  */
 class SubjectMetadata
 {
-    /**
-     * @var string
-     */
-    private $name;
+    private ParameterSetsCollection $parameterSets;
 
     /**
-     * @var array[]
+     * @var string[]|null
      */
-    private $parameterSets = [];
+    private ?array $groups = null;
 
     /**
-     * @var string[]
+     * @var string[]|null
      */
-    private $groups = [];
+    private ?array $beforeMethods = null;
 
     /**
-     * @var string[]
+     * @var string[]|null
      */
-    private $beforeMethods = [];
+    private ?array $afterMethods = null;
 
     /**
-     * @var string[]
+     * @var string[]|null
      */
-    private $afterMethods = [];
+    private ?array $paramProviders = null;
+
+    private ?float $retryThreshold = null;
 
     /**
-     * @var string[]
+     * @var null|int[]
      */
-    private $paramProviders = [];
+    private ?array $iterations = null;
 
     /**
-     * @var float
+     * @var null|int[]
      */
-    private $retryThreshold;
+    private ?array $revs = null;
 
     /**
-     * @var int[]
+     * @var null|int[]
      */
-    private $iterations = [1];
+    private ?array $warmup = null;
+
+    private ?bool $skip = null;
+
+    private ?int $sleep = null;
+
+    private ?string $outputTimeUnit = null;
+
+    private ?int $outputTimePrecision = null;
+
+    private ?string $outputMode = null;
 
     /**
-     * @var int[]
+     * @var null|array<string>
      */
-    private $revs = [1];
+    private ?array $assertions = null;
 
-    /**
-     * @var int[]
-     */
-    private $warmup = [0];
+    private ?ExecutorMetadata $executorMetadata = null;
 
-    /**
-     * @var bool
-     */
-    private $skip = false;
+    private ?float $timeout = null;
 
-    /**
-     * @var int
-     */
-    private $sleep = 0;
+    private ?int $retryLimit = null;
 
-    /**
-     * @var string
-     */
-    private $outputTimeUnit = null;
+    private ?string $format = null;
 
-    /**
-     * @var string
-     */
-    private $outputTimePrecision = null;
-
-    /**
-     * @var string
-     */
-    private $outputMode = null;
-
-    /**
-     * @var BenchmarkMetadata
-     */
-    private $benchmarkMetadata;
-
-    /**
-     * @var AssertionMetadata[]
-     */
-    private $assertions = [];
-
-    /**
-     * @var ExecutorMetadata
-     */
-    private $executorMetadata;
-
-    /**
-     * @var float|null
-     */
-    private $timeout = 0;
-
-    /**
-     * @param string $name
-     */
-    public function __construct(BenchmarkMetadata $benchmarkMetadata, $name)
+    public function __construct(private readonly BenchmarkMetadata $benchmarkMetadata, private readonly string $name)
     {
-        $this->name = $name;
-        $this->benchmarkMetadata = $benchmarkMetadata;
+        $this->parameterSets = ParameterSetsCollection::empty();
     }
 
     /**
      * Return the method name of this subject.
-     *
-     * @return string
      */
-    public function getName()
+    public function getName(): string
     {
         return $this->name;
     }
 
     /**
      * Set the parameter sets for this subject.
-     *
-     * @param array[] $parameterSets
      */
-    public function setParameterSets(array $parameterSets)
+    public function setParameterSets(ParameterSetsCollection $parameterSets): void
     {
         $this->parameterSets = $parameterSets;
     }
 
     /**
      * Return the parameter sets for this subject.
-     *
-     * @return array[]
      */
-    public function getParameterSets()
+    public function getParameterSetsCollection(): ParameterSetsCollection
     {
         return $this->parameterSets;
     }
 
     /**
      * Return the benchmarkMetadata metadata for this subject.
-     *
-     * @return BenchmarkMetadata
      */
-    public function getBenchmark()
+    public function getBenchmark(): BenchmarkMetadata
     {
         return $this->benchmarkMetadata;
     }
 
-    public function getGroups()
+    /**
+     * @return string[]
+     */
+    public function getGroups(): array
     {
-        return $this->groups;
+        return $this->groups ?: [];
     }
 
-    public function inGroups(array $groups)
+    /**
+     * @param string[] $groups
+     */
+    public function inGroups(array $groups): bool
     {
+        if ($this->groups === null) {
+            return false;
+        }
+
         return (bool) count(array_intersect($this->groups, $groups));
     }
 
-    public function setGroups($groups)
+    /**
+     * @param string[] $groups
+     */
+    public function setGroups(array $groups): void
     {
         $this->groups = $groups;
     }
 
-    public function getBeforeMethods()
+    /**
+     * @return string[]
+     */
+    public function getBeforeMethods(): array
     {
-        return $this->beforeMethods;
+        return $this->beforeMethods ?: [];
     }
 
-    public function setBeforeMethods($beforeMethods)
+    /**
+     * @param string[] $beforeMethods
+     */
+    public function setBeforeMethods(array $beforeMethods): void
     {
         $this->beforeMethods = $beforeMethods;
     }
 
-    public function getAfterMethods()
+    /**
+     * @return string[]
+     */
+    public function getAfterMethods(): array
     {
-        return $this->afterMethods;
+        return $this->afterMethods ?: [];
     }
 
-    public function setAfterMethods($afterMethods)
+    /**
+     * @param string[] $afterMethods
+     */
+    public function setAfterMethods(array $afterMethods): void
     {
         $this->afterMethods = $afterMethods;
     }
 
-    public function getParamProviders()
+    /**
+     * @return string[]
+     */
+    public function getParamProviders(): array
     {
-        return $this->paramProviders;
+        return $this->paramProviders ?: [];
     }
 
-    public function setParamProviders($paramProviders)
+    /**
+     * @param string[] $paramProviders
+     */
+    public function setParamProviders(array $paramProviders): self
     {
         $this->paramProviders = $paramProviders;
 
         return $this;
     }
 
-    public function getIterations()
+    /**
+     * @return int[]|null
+     */
+    public function getIterations(): ?array
     {
         return $this->iterations;
     }
 
-    public function setIterations($iterations)
+    /**
+     * @param int[] $iterations
+     */
+    public function setIterations(array $iterations): void
     {
         $this->iterations = $iterations;
     }
 
-    public function getRevs()
+    /**
+     * @return int[]|null
+     */
+    public function getRevs(): ?array
     {
         return $this->revs;
     }
 
-    public function setRevs($revs)
+    /**
+     * @param int[] $revs
+     */
+    public function setRevs(array $revs): void
     {
         $this->revs = $revs;
     }
 
-    public function getSkip()
+    public function getSkip(): bool
     {
-        return $this->skip;
+        return $this->skip ?: false;
     }
 
-    public function setSkip($skip)
+    public function setSkip(bool $skip): void
     {
         $this->skip = $skip;
     }
 
-    public function getSleep()
+    public function getSleep(): int
     {
-        return $this->sleep;
+        return $this->sleep ?: 0;
     }
 
-    public function setSleep($sleep)
+    public function setSleep(int $sleep): void
     {
         $this->sleep = $sleep;
     }
 
-    public function getOutputTimeUnit()
+    public function getOutputTimeUnit(): ?string
     {
         return $this->outputTimeUnit;
     }
 
-    public function setOutputTimeUnit($outputTimeUnit)
+    public function setOutputTimeUnit(?string $outputTimeUnit): void
     {
         $this->outputTimeUnit = $outputTimeUnit;
     }
 
-    public function getOutputTimePrecision()
+    public function getOutputTimePrecision(): ?int
     {
         return $this->outputTimePrecision;
     }
 
-    public function setOutputTimePrecision($outputTimePrecision)
+    public function setOutputTimePrecision(?int $outputTimePrecision): void
     {
         $this->outputTimePrecision = $outputTimePrecision;
     }
 
-    public function getOutputMode()
+    public function getOutputMode(): ?string
     {
         return $this->outputMode;
     }
 
-    public function setOutputMode($outputMode)
+    public function setOutputMode(?string $outputMode): void
     {
         $this->outputMode = $outputMode;
     }
 
-    public function getWarmup()
+    /**
+     * @return int[]
+     */
+    public function getWarmup(): array
     {
-        return $this->warmup;
+        return $this->warmup ?: [0];
     }
 
-    public function setWarmup($warmup)
+    /**
+     * @param int[] $warmup
+     */
+    public function setWarmup(array $warmup): void
     {
         $this->warmup = $warmup;
     }
 
-    public function getRetryThreshold()
+    public function getRetryThreshold(): ?float
     {
         return $this->retryThreshold;
     }
 
-    public function setRetryThreshold($retryThreshold)
+    public function setRetryThreshold(?float $retryThreshold): void
     {
         $this->retryThreshold = $retryThreshold;
     }
 
-    public function addAssertion(AssertionMetadata $assertion)
+    public function addAssertion(string $assertion): void
     {
         $this->assertions[] = $assertion;
     }
 
-    public function setAssertions(array $assertions)
+    /**
+     * @param array<string> $assertions
+     */
+    public function setAssertions(array $assertions): void
     {
         $this->assertions = [];
 
@@ -312,20 +321,30 @@ class SubjectMetadata
         }
     }
 
-    public function getAssertions()
+    /**
+     * @return string[]
+     */
+    public function getAssertions(): array
     {
-        return $this->assertions;
+        return $this->assertions ?: [];
     }
 
-    /**
-     * @return ExecutorMetadata|null
-     */
-    public function getExecutor()
+    public function setFormat(string $format): void
+    {
+        $this->format = $format;
+    }
+
+    public function getFormat(): ?string
+    {
+        return $this->format;
+    }
+
+    public function getExecutor(): ?ExecutorMetadata
     {
         return $this->executorMetadata;
     }
 
-    public function setExecutor(ExecutorMetadata $serviceMetadata)
+    public function setExecutor(ExecutorMetadata $serviceMetadata): void
     {
         $this->executorMetadata = $serviceMetadata;
     }
@@ -335,8 +354,61 @@ class SubjectMetadata
         return $this->timeout;
     }
 
-    public function setTimeout(float $timeout): void
+    public function setTimeout(?float $timeout): void
     {
         $this->timeout = $timeout;
+    }
+
+    public function setRetryLimit(int $retryLimit): void
+    {
+        $this->retryLimit = $retryLimit;
+    }
+
+    public function getRetryLimit(): ?int
+    {
+        return $this->retryLimit;
+    }
+
+    public function merge(SubjectMetadata $subject): void
+    {
+        // merge
+        foreach ([
+            'groups',
+            'beforeMethods',
+            'afterMethods',
+            'paramProviders',
+            'iterations',
+            'revs',
+            'assertions',
+            'warmup',
+        ] as $toMerge) {
+            if ($subject->$toMerge === null) {
+                continue;
+            }
+
+            if ($this->$toMerge === null) {
+                $this->$toMerge = $subject->$toMerge;
+
+                continue;
+            }
+            $this->$toMerge = array_merge($this->$toMerge, $subject->$toMerge);
+        }
+
+        // replace
+        foreach ([
+            'skip',
+            'sleep',
+            'outputTimeUnit',
+            'outputTimePrecision',
+            'outputMode',
+            'retryThreshold',
+            'executorMetadata',
+            'timeout',
+        ] as $toReplace) {
+            if ($subject->$toReplace === null) {
+                continue;
+            }
+            $this->$toReplace = $subject->$toReplace;
+        }
     }
 }

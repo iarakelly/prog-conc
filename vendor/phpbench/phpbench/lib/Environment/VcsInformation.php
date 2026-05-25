@@ -19,7 +19,11 @@ namespace PhpBench\Environment;
  */
 class VcsInformation extends Information
 {
-    public function __construct($system, $branch, $version)
+    /**
+     * @param string $branch
+     * @param ?string $version
+     */
+    public function __construct(string $system, $branch, $version)
     {
         parent::__construct('vcs', [
             'system' => $system,

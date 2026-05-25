@@ -12,28 +12,22 @@
 
 namespace PhpBench\Environment\Provider;
 
-use PhpBench\Benchmark\Remote\Launcher;
 use PhpBench\Environment\Information;
 use PhpBench\Environment\ProviderInterface;
+use PhpBench\Remote\Launcher;
 
 abstract class AbstractRemoteProvider implements ProviderInterface
 {
-    /**
-     * @var Launcher
-     */
-    private $launcher;
-
-    public function __construct(Launcher $launcher)
+    public function __construct(private readonly Launcher $launcher)
     {
-        $this->launcher = $launcher;
     }
 
-    public function isApplicable()
+    public function isApplicable(): bool
     {
         return true;
     }
 
-    public function getInformation()
+    public function getInformation(): Information
     {
         return new Information(
             $this->name(),
@@ -41,7 +35,10 @@ abstract class AbstractRemoteProvider implements ProviderInterface
         );
     }
 
-    private function getData()
+    /**
+     * @return array<string, mixed>
+     */
+    private function getData(): array
     {
         return $this->launcher->payload($this->template())->launch();
     }

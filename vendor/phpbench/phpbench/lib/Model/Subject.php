@@ -13,6 +13,7 @@
 namespace PhpBench\Model;
 
 use PhpBench\Util\TimeUnit;
+use RuntimeException;
 
 /**
  * Subject representation.
@@ -23,78 +24,42 @@ use PhpBench\Util\TimeUnit;
 class Subject
 {
     /**
-     * @var Benchmark
-     */
-    private $benchmark;
-
-    /**
-     * @var string
-     */
-    private $name;
-
-    /**
      * @var string[]
      */
-    private $groups = [];
+    private array $groups = [];
 
-    /**
-     * @var int
-     */
-    private $sleep = 0;
+    private int $sleep = 0;
 
-    /**
-     * @var float
-     */
-    private $retryThreshold;
+    private ?float $retryThreshold = null;
 
-    /**
-     * @var string
-     */
-    private $outputTimeUnit = TimeUnit::MICROSECONDS;
+    private ?string $outputTimeUnit = TimeUnit::MICROSECONDS;
 
-    /**
-     * @var int
-     */
-    private $outputTimePrecision = null;
+    private ?int $outputTimePrecision = null;
 
-    /**
-     * @var string
-     */
-    private $outputMode = TimeUnit::MODE_TIME;
+    private ?string $outputMode = TimeUnit::MODE_TIME;
 
     /**
      * @var Variant[]
      */
     private $variants = [];
 
-    /**
-     * @var int
-     */
-    private $index = 0;
+    private int $index = 0;
+
+    private ?ResolvedExecutor $executor = null;
+
+    private ?string $format = null;
 
     /**
-     * @var ResolvedExecutor
      */
-    private $executor;
-
-    /**
-     * @param Benchmark $benchmark
-     * @param string $name
-     */
-    public function __construct(Benchmark $benchmark, $name)
+    public function __construct(private Benchmark $benchmark, private string $name)
     {
-        $this->benchmark = $benchmark;
-        $this->name = $name;
-
         $this->index = count($benchmark->getSubjects());
     }
 
     /**
      * Return the method name of this subject.
-     *
-     * @return string
      */
-    public function getName()
+    public function getName(): string
     {
         return $this->name;
     }
@@ -102,13 +67,9 @@ class Subject
     /**
      * Create and add a new variant based on this subject.
      *
-     * @param ParameterSet $parameterSet
-     * @param int $revolutions
-     * @param int $warmup
-     *
-     * @return Variant
+     * @param array<string,mixed> $computedStats
      */
-    public function createVariant(ParameterSet $parameterSet, $revolutions, $warmup, array $computedStats = [])
+    public function createVariant(ParameterSet $parameterSet, int $revolutions, int $warmup, array $computedStats = []): Variant
     {
         $variant = new Variant(
             $this,
@@ -122,12 +83,30 @@ class Subject
         return $variant;
     }
 
+    public function addVariant(Variant $variant): void
+    {
+        if ($variant->getSubject() !== $this) {
+            throw new RuntimeException(
+                'Adding variant to subject to which it does not belong'
+            );
+        }
+        $this->variants[] = $variant;
+    }
+
+    /**
+     * @deprecated Use addVariant. To be removed in 2.0
+     */
+    public function setVariant(Variant $variant): void
+    {
+        $this->addVariant($variant);
+    }
+
     /**
      * @return Variant[]
      */
-    public function getVariants()
+    public function getVariants(): array
     {
-        return $this->variants;
+        return array_values($this->variants);
     }
 
     /**
@@ -138,85 +117,91 @@ class Subject
         return $this->benchmark;
     }
 
-    public function getGroups()
+    /**
+     * @return string[]
+     */
+    public function getGroups(): array
     {
         return $this->groups;
     }
 
-    public function inGroups(array $groups)
+    /**
+     * @param string[] $groups
+     */
+    public function inGroups(array $groups): bool
     {
-        return (bool) count(array_intersect($this->groups, $groups));
+        return 0 !== count(array_intersect($this->groups, $groups));
     }
 
-    public function setGroups($groups)
+    /**
+     * @param string[] $groups
+     */
+    public function setGroups(array $groups): void
     {
         $this->groups = $groups;
     }
 
-    public function getSleep()
+    public function getSleep(): int
     {
         return $this->sleep;
     }
 
-    public function setSleep($sleep)
+    public function setSleep(int $sleep): void
     {
         $this->sleep = $sleep;
     }
 
-    public function getOutputTimeUnit()
+    public function getOutputTimeUnit(): ?string
     {
         return $this->outputTimeUnit;
     }
 
-    public function setOutputTimeUnit($outputTimeUnit)
+    public function setOutputTimeUnit(?string $outputTimeUnit): void
     {
         $this->outputTimeUnit = $outputTimeUnit;
     }
 
-    public function getOutputTimePrecision()
+    public function getOutputTimePrecision(): ?int
     {
         return $this->outputTimePrecision;
     }
 
-    public function setOutputTimePrecision($outputTimePrecision)
+    public function setOutputTimePrecision(?int $outputTimePrecision): void
     {
         $this->outputTimePrecision = $outputTimePrecision;
     }
 
-    public function getOutputMode()
+    public function getOutputMode(): ?string
     {
         return $this->outputMode;
     }
 
-    public function setOutputMode($outputMode)
+    public function setOutputMode(?string $outputMode): void
     {
         $this->outputMode = $outputMode;
     }
 
-    public function getRetryThreshold()
+    public function getRetryThreshold(): ?float
     {
         return $this->retryThreshold;
     }
 
-    public function setRetryThreshold($retryThreshold)
+    public function setRetryThreshold(?float $retryThreshold): void
     {
         $this->retryThreshold = $retryThreshold;
     }
 
-    public function getIndex()
+    public function getIndex(): int
     {
         return $this->index;
     }
 
-    /**
-     * @return ResolvedExecutor|null
-     */
-    public function getExecutor()
+    public function getExecutor(): ResolvedExecutor
     {
         return $this->executor;
     }
 
-    public function setExecutor(ResolvedExecutor $executor)
+    public function setExecutor(ResolvedExecutor $executor): void
     {
         $this->executor = $executor;
     }
@@ -226,5 +211,75 @@ class Subject
         $this->variants = array_filter($this->variants, function (Variant $variant) use ($target) {
             return $variant !== $target;
         });
+    }
+
+    /**
+     * Returns the _first_ variant that matches the given parameter set name.
+     * Note that there may be multiple variants with the same parameter set as
+     * they can also vary by the number of revs/iterations.
+     */
+    public function getVariantByParameterSetName(string $parameterSetName): ?Variant
+    {
+        foreach ($this->variants as $variant) {
+            if ($variant->getParameterSet()->getName() !== $parameterSetName) {
+                continue;
+            }
+
+            return $variant;
+        }
+
+        return null;
+    }
+
+    /**
+     * @deprecated use getVariantByParameterSetName. will be removed in 2.0
+     */
+    public function getVariant(string $parameterSetName): ?Variant
+    {
+        return $this->getVariantByParameterSetName($parameterSetName);
+    }
+
+    public function setFormat(?string $format): void
+    {
+        $this->format = $format;
+    }
+
+    public function getFormat(): ?string
+    {
+        return $this->format;
+    }
+
+    /**
+     * @param string[] $variantPatterns
+     */
+    public function filterVariants(array $variantPatterns): self
+    {
+        $new = clone $this;
+        $new->variants = array_filter($this->variants, function (Variant $variant) use ($variantPatterns) {
+            return $variant->getParameterSet()->nameMatches($variantPatterns);
+        });
+
+        return $new;
+    }
+
+    /**
+     * @param string[] $patterns
+     */
+    public static function matchesPatterns(string $benchmark, string $subject, array $patterns): bool
+    {
+        if (empty($patterns)) {
+            return true;
+        }
+
+        foreach ($patterns as $pattern) {
+            if (preg_match(
+                sprintf('{^.*?%s.*?$}', $pattern),
+                sprintf('%s::%s', $benchmark, $subject)
+            )) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

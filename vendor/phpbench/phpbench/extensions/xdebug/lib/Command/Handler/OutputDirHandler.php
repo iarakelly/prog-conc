@@ -12,7 +12,7 @@
 
 namespace PhpBench\Extensions\XDebug\Command\Handler;
 
-use PhpBench\PhpBench;
+use Symfony\Component\Filesystem\Path;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -21,23 +21,36 @@ use Symfony\Component\Filesystem\Filesystem;
 
 class OutputDirHandler
 {
+    /**
+     * @var string
+     */
     private $outputDir;
+
+    /**
+     * @var Filesystem
+     */
     private $filesystem;
 
-    public function __construct($outputDir, Filesystem $filesystem = null)
+    /**
+     * @var string
+     */
+    private $cwd;
+
+    public function __construct(string $outputDir, string $cwd, ?Filesystem $filesystem = null)
     {
         $this->outputDir = $outputDir;
         $this->filesystem = $filesystem ?: new Filesystem();
+        $this->cwd = $cwd;
     }
 
-    public static function configure(Command $command)
+    public static function configure(Command $command): void
     {
         $command->addOption('outdir', null, InputOption::VALUE_REQUIRED, 'Output directory');
     }
 
-    public function handleOutputDir(InputInterface $input, OutputInterface $output)
+    public function handleOutputDir(InputInterface $input, OutputInterface $output): string
     {
-        $outputDir = PhpBench::normalizePath($input->getOption('outdir') ?: $this->outputDir);
+        $outputDir = Path::makeAbsolute($input->getOption('outdir') ?: $this->outputDir, $this->cwd);
 
         if (!$this->filesystem->exists($outputDir)) {
             $output->writeln(sprintf(

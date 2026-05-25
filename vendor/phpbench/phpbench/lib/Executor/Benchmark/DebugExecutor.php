@@ -12,9 +12,9 @@
 
 namespace PhpBench\Executor\Benchmark;
 
-use PhpBench\Benchmark\Metadata\SubjectMetadata;
 use PhpBench\Executor\BenchmarkExecutorInterface;
-use PhpBench\Model\Iteration;
+use PhpBench\Executor\ExecutionContext;
+use PhpBench\Executor\ExecutionResults;
 use PhpBench\Model\Result\MemoryResult;
 use PhpBench\Model\Result\TimeResult;
 use PhpBench\Registry\Config;
@@ -26,50 +26,54 @@ use Symfony\Component\OptionsResolver\OptionsResolver;
  */
 class DebugExecutor implements BenchmarkExecutorInterface
 {
-    private $variantTimes = [];
-    private $index = 0;
+    private array $variantTimes = [];
+    private int $index = 0;
 
     /**
      * {@inheritdoc}
      */
-    public function execute(SubjectMetadata $subjectMetadata, Iteration $iteration, Config $config): void
+    public function execute(ExecutionContext $context, Config $config): ExecutionResults
     {
+        $results = ExecutionResults::new();
+
         // add 100 bytes of memory.
         $memory = 100;
-        $iteration->setResult(new MemoryResult($memory, $memory, $memory));
+        $results->add(new MemoryResult($memory, $memory, $memory));
 
         if (!$config['times']) {
-            $iteration->setResult(new TimeResult(0));
+            $results->add(new TimeResult(0, $context->getRevolutions()));
 
-            return;
+            return $results;
         }
 
-        $variantHash = spl_object_hash($iteration->getVariant());
+        $contextHash = spl_object_hash($context);
 
-        if (!isset($this->variantTimes[$variantHash])) {
-            $this->variantTimes[$variantHash] = $config['times'];
+        if (!isset($this->variantTimes[$contextHash])) {
+            $this->variantTimes[$contextHash] = $config['times'];
         }
 
-        if (!isset($this->variantTimes[$variantHash][$this->index])) {
+        if (!isset($this->variantTimes[$contextHash][$this->index])) {
             $this->index = 0;
         }
 
-        $time = $this->variantTimes[$variantHash][$this->index];
+        $time = $this->variantTimes[$contextHash][$this->index];
         $this->index++;
 
         if ($config['spread']) {
-            $index = $iteration->getIndex() % count($config['spread']);
+            $index = $context->getIterationIndex() % count($config['spread']);
             $spreadDiff = $config['spread'][$index];
             $time = $time + $spreadDiff;
         }
 
-        $iteration->setResult(new TimeResult($time));
+        $results->add(new TimeResult($time, $context->getRevolutions()));
+
+        return $results;
     }
 
     /**
      * {@inheritdoc}
      */
-    public function configure(OptionsResolver $options)
+    public function configure(OptionsResolver $options): void
     {
         $options->setDefaults([
             'times' => [10],

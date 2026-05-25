@@ -1,12 +1,13 @@
 <?php
+// read.php
 
 include 'knn.php';
 
-$train_file = "/home/lucyedja/Downloads/prog-conc/anac_train.csv";
-$test_file = "/home/lucyedja/Downloads/prog-conc/anac_test.csv";
+$train_file = "/home/kelly/prog-conc/anac_train.csv";
+$test_file = "/home/kelly/prog-conc/anac_test.csv";
 
 function getAnacData($file_path) {
-    if (!file_exists($file_path)){
+    if (!file_exists($file_path)) {
         die("Erro: {$file_path} nao encontrado" . PHP_EOL);
     }
 
@@ -24,43 +25,46 @@ function runSequential($train_file, $test_file, $k) {
     $train = [];
     $i = 0;
     
-    // 1. CARREGAMENTO (Fora do cronômetro)
-    // CORREÇÃO 1: Mudado de $file_path para $train_file (variável correta)
+    echo "--- Carregando dados de treino ---" . PHP_EOL;
     foreach (getAnacData($train_file) as $row) {
+        // Mapeia as 9 features do seu dataset da ANAC e a hora alvo (índice 9)
         $features = [
             (float)$row[0], (float)$row[1], (float)$row[2],
             (float)$row[3], (float)$row[4], (float)$row[5],
             (float)$row[6], (float)$row[7], (float)$row[8]
         ]; 
-        // CORREÇÃO 2: Cast para (float) no target do regressor
         $train[] = new Point($features, (float)$row[9]);
         
         $i++;
-        if ($i % 50000 === 0) {
-            echo "Linhas carregadas: $i | Memória atual: " . round(memory_get_usage() / 1024 / 1024) . " MB\n";
+        if ($i % 100000 === 0) {
+            echo "Registros no buffer: $i | RAM: " . round(memory_get_usage() / 1024 / 1024) . " MB\n";
         }
     }
-    
-    // Coleta apenas 1 ponto do arquivo de teste para o exemplo de ponto único
+        
+    // Coleta apenas 1 ponto do arquivo de teste para o cálculo de ponto único
     $test_point = null;
     foreach (getAnacData($test_file) as $row) {
-        $features = [(float)$row[0], (float)$row[1], (float)$row[2], (float)$row[3], (float)$row[4], (float)$row[5], (float)$row[6], (float)$row[7], (float)$row[8]]; 
+        $features = [
+            (float)$row[0], (float)$row[1], (float)$row[2],
+            (float)$row[3], (float)$row[4], (float)$row[5],
+            (float)$row[6], (float)$row[7], (float)$row[8]
+        ]; 
         $test_point = new Point($features, (float)$row[9]);
-        break; // Pega só o primeiro
+        break; // Interrompe o laço para pegar estritamente o primeiro ponto
     }
 
-    // 2. MEDIÇÃO EXCLUSIVA DO KNN
+    echo "--- Executando o KNN (Ponto Único) ---" . PHP_EOL;
+    
+    // Cronometra exclusivamente a execução matemática do KNN
     $start = microtime(true);
-    
-    // CORREÇÃO 3: $test_point agora existe dentro do escopo da função
     $result = $knn->regressor($train, $test_point, $k);
-    
     $end = microtime(true);
 
     echo "Resultado da predição: " . $result . PHP_EOL;
-    return $end - $start; // Retorna apenas o tempo de cálculo matemático
+    
+    return $end - $start; // Retorna o tempo decorrido do cálculo
 }
 
-// Execução do teste manual (Macro-bench simples)
+// Executa o script passando os caminhos corretos
 $time = runSequential($train_file, $test_file, 3);
-echo "Tempo estrito do KNN: " . round($time, 4) . " segundos" . PHP_EOL;
+echo "Tempo de execução: " . round($time, 4) . " segundos" . PHP_EOL;
