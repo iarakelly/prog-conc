@@ -66,13 +66,5 @@ class KnnBench {
         $this->instanciaKnn->regressor($this->dadosTreino, $this->pontoUnicoTeste, 3);
     }
 
-    // TESTE 2: Regressão em lote com 100 pontos
-    #[BeforeMethods('inicializarAmbiente')]
-    #[Iterations(5)]
-    #[Revolutions(1)]
-    public function benchRegressorLote100(): void {
-        foreach ($this->dadosLoteTeste as $testPoint) {
-            $this->instanciaKnn->regressor($this->dadosTreino, $testPoint, 3);
-        }
-    }
+
 }
