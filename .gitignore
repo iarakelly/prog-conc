@@ -4,3 +4,5 @@ target/
 src/main/java/com/concurrency/resources
 
 /vendor
+
+composer.phar
