@@ -1,19 +1,11 @@
 package com.concurrency;
+
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.PriorityQueue;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Future;
-
-
 
 public class Knn {
-    
+
     public static double calculateDistance(double[] p1, double[] p2){
         double sum = 0;
         int length = Math.min(p1.length, p2.length);
@@ -21,98 +13,103 @@ public class Knn {
         for (int i = 0; i < length; i++){
             double diff = p1[i] - p2[i];
             sum += diff * diff;
-            //sum += Math.pow((p1[i]-p2[i]), 2);
-            
         }
         
         return Math.sqrt(sum);
     }
 
-    //CLasse para juntar distance com label
-
-    static class DistanceLabel{
+    static class DistanceTarget {
         double distance;
-        String label;
+        double target; 
     
-        DistanceLabel(double d, String r){
+        DistanceTarget(double d, double t){
             this.distance = d;
-            this.label = r;
+            this.target = t;
         }
     }
 
-    public static String classifier(List<Point> train, double[] pointC, int k, ExecutorService executor) throws InterruptedException, ExecutionException{
+    // Classe interna para encapsular o trabalho de cada thread manual
+    private static class KnnTask implements Runnable {
+        private final List<Point> subList;
+        private final double[] pointC;
+        private final int k;
+        private final List<DistanceTarget> result = new ArrayList<>();
 
-        // Treinar é armazenar os dados, no knn
-        // K é o número de vizinhos
-
-        // Em vez de uma lista de 500k objetos a PriorityQueue 
-        // guarda apenas os K vizinhos mais próximos.
-        // Invertemos a ordem (Max-Heap) para remover sempre o mais distante dos K.
-
-        // Define o número de threads (baseado nos núcleos da CPU)
-        int numThreads = Runtime.getRuntime().availableProcessors();
-        //ExecutorService executor = Executors.newFixedThreadPool(numThreads);
-        int chunkSize = (int) Math.ceil((double) train.size() / numThreads);
-        List<Callable<List<DistanceLabel>>> tasks = new ArrayList<>();
-        //List<DistanceLabel> neighbors = new ArrayList<>();
-
-        for (int i = 0; i < numThreads; i++) {
-            int start = i * chunkSize;
-            int end = Math.min(start + chunkSize, train.size());
-            
-            if (start >= train.size()) break;
-
-            List<Point> subList = train.subList(start, end);
-            tasks.add(() -> {
-                // Cada thread mantém sua própria PriorityQueue local para os K vizinhos
-                PriorityQueue<DistanceLabel> localPq = new PriorityQueue<>(
-                    k, (a, b) -> Double.compare(b.distance, a.distance));
-
-                for (Point p : subList) {
-                    double distance = calculateDistance(p.features, pointC);
-                    if (localPq.size() < k) {
-                        localPq.add(new DistanceLabel(distance, p.label));
-                    } else if (distance < localPq.peek().distance) {
-                        localPq.poll();
-                        localPq.add(new DistanceLabel(distance, p.label));
-                    }
-                }
-                return new ArrayList<>(localPq);
-            });
+        KnnTask(List<Point> subList, double[] pointC, int k) {
+            this.subList = subList;
+            this.pointC = pointC;
+            this.k = k;
         }
 
-        List<Future<List<DistanceLabel>>> futures = executor.invokeAll(tasks);
+        @Override
+        public void run() {
+            List<DistanceTarget> localList = new ArrayList<>();
 
-        PriorityQueue<DistanceLabel> globalPq = new PriorityQueue<>(
-                k, (a, b) -> Double.compare(b.distance, a.distance));
-        
-        for (Future<List<DistanceLabel>> future : futures) {
-            for (DistanceLabel dl : future.get()) {
-                if (globalPq.size() < k) {
-                    globalPq.add(dl);
-                } else if (dl.distance < globalPq.peek().distance) {
-                    globalPq.poll();
-                    globalPq.add(dl);
-                }
+            for (Point p : subList) {
+                double distance = calculateDistance(p.features, pointC);
+                localList.add(new DistanceTarget(distance, p.hour));
+            }
+            
+            // Ordena e isola os K menores locais da thread
+            localList.sort((a, b) -> Double.compare(a.distance, b.distance));
+            
+            int limit = Math.min(k, localList.size());
+            for (int i = 0; i < limit; i++) {
+                result.add(localList.get(i));
             }
         }
 
-        HashMap<String, Integer> votes = new HashMap<>();
-        while (!globalPq.isEmpty()) {
-            String s = globalPq.poll().label;
-            votes.put(s, votes.getOrDefault(s, 0) + 1);
+        public List<DistanceTarget> getResult() {
+            return result;
         }
-    /*
-    for(int i = 0; i < k; i++){
-        String s = neighbors.get(i).label;
+    }
 
-        votes.put(s, votes.getOrDefault(s, 0) + 1); // pega o contador ou inicia default como 0
+    public static double regressor(List<Point> train, double[] pointC, int k) throws InterruptedException, ExecutionException {
+        
+        int numThreads = Runtime.getRuntime().availableProcessors();
+        int chunkSize = (int) Math.ceil((double) train.size() / numThreads);
+        
+        List<Thread> threads = new ArrayList<>();
+        List<KnnTask> tasks = new ArrayList<>();
 
-    } 
-    */    
+        // 1. Criação e inicialização manual das threads
+        for (int i = 0; i < numThreads; i++) {
+            int start = i * chunkSize;
+            int end = Math.min(start + chunkSize, train.size());
 
-        return Collections.max(votes.entrySet(), Map.Entry.comparingByValue()).getKey();
+            if (start >= train.size()) break;
 
+            List<Point> subList = train.subList(start, end);
+            KnnTask task = new KnnTask(subList, pointC, k);
+            tasks.add(task);
+
+            // Instancia uma Platform Thread manualmente
+            Thread thread = new Thread(task);
+            threads.add(thread);
+            thread.start(); 
+        }
+
+        // 2. Sincronização manual (Aguarda o término de todas as threads)
+        for (Thread thread : threads) {
+            thread.join();
+        }
+
+        // 3. Consolidação global dos resultados das threads
+        List<DistanceTarget> globalList = new ArrayList<>();
+        for (KnnTask task : tasks) {
+            globalList.addAll(task.getResult());
+        }
+
+        // Ordenação final do funil para obter os K vizinhos mais próximos do dataset completo
+        globalList.sort((a, b) -> Double.compare(a.distance, b.distance));
+        
+        int limit = Math.min(k, globalList.size());
+        double sumLabels = 0;
+
+        for (int i = 0; i < limit; i++) {
+            sumLabels += globalList.get(i).target;
+        }
+
+        return limit > 0 ? (sumLabels / limit) : 0.0;
     }
 }
-

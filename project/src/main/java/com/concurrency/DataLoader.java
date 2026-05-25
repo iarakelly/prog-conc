@@ -19,17 +19,26 @@ public class DataLoader {
                 if (partes.length < 2) continue;
 
                 try {
+                    // Extrai as 9 primeiras colunas como features
                     double[] features = new double[partes.length - 1];
                     for (int i = 0; i < partes.length - 1; i++) {
                         try {
-                        
                             features[i] = Double.parseDouble(partes[i]);
                         } catch (NumberFormatException e) {
                             features[i] = 0.0; 
                         }
                     }
-                    // A última coluna é o Label (ex: "AZUL" ou destino)
-                    pontos.add(new Point(features, partes[partes.length - 1]));
+                    
+                    // CORREÇÃO: Faz o parse da última coluna (índice 9) para double (Target)
+                    double target;
+                    try {
+                        target = Double.parseDouble(partes[partes.length - 1]);
+                    } catch (NumberFormatException e) {
+                        target = 0.0;
+                    }
+                    
+                    // Adiciona o ponto passando o target numérico corrigido
+                    pontos.add(new Point(features, target));
                     cont++;
                 } catch (Exception e) {}
             }

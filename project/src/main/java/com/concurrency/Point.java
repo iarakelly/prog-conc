@@ -2,11 +2,11 @@ package com.concurrency;
 
 public class Point {
     double[] features;
-    String label;
+    double hour;
 
-    public Point(double[] features, String label){
+    public Point(double[] features, double hour){
         this.features = features;
-        this.label = label;
+        this.hour = hour;
     }
 
     public double[] getFeatures(){return features;}
