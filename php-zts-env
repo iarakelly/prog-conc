@@ -1,0 +1,2 @@
+#!/bin/sh
+/usr/local/php-zts/bin/php -d memory_limit=-1 -c /usr/local/php-zts/etc/php.ini "$@"
